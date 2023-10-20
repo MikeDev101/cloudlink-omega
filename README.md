@@ -11,5 +11,5 @@ Golang server.
 No more need for cloud lists or complex multiplayer code. CLΩ has everything needed built-in. More time to
 make games, less time to write code.
 
-## 🌐 P2P
-CLΩ is powered by WebRTC, and will automatically negotiate connections to other players for you. 
+## 🌐 P2P support
+CLΩ natively runs on WebRTC, enabling peer-to-peer connectivity. You can also utilize WebTransport or WebSockets.
