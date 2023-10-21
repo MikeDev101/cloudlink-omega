@@ -58,7 +58,7 @@
         pc.onicecandidate = (e) => {
             if (!e.candidate) return;
 
-            console.log(e.candidate.candidate);
+            console.log(e.candidate);
 
             // If a srflx candidate was found, notify that the STUN server works!
             if (e.candidate.type == 'srflx' || e.candidate.candidate.includes('srflx')) {
