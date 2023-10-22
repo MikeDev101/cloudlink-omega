@@ -12,7 +12,7 @@ var ServerVersion string = "0.1.0"
 
 type Manager struct {
 	// Friendly name for manager
-	name interface{}
+	name string
 
 	// Registered client sessions
 	clients      map[uuid.UUID]*Client

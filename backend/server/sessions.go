@@ -6,7 +6,7 @@ import (
 	"github.com/gofiber/contrib/websocket"
 )
 
-var existingManagers = map[interface{}]*Manager{}
+var existingManagers = map[string]*Manager{}
 
 func (client *Client) CloseWithMessage(statuscode int, closeMessage string) {
 	client.connection.WriteMessage(
