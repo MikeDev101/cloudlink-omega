@@ -29,7 +29,6 @@ func UnicastMessage(client *Client, message []byte, ignoreOrigin *Client) {
 	client.connectionMutex.Lock()
 
 	if (ignoreOrigin != nil) && (ignoreOrigin == client) {
-		log.Printf("ignoring sending message to original client")
 		client.connectionMutex.Unlock()
 		return
 	}
