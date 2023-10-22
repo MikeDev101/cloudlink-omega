@@ -33,8 +33,8 @@ func (client *Client) MessageHandler(manager *Manager) {
 		log.Printf("[%s] Client %s incoming message: %s", manager.name, client.id, message)
 
 		// Something - Handle messages here
-		// UnicastMessage(client, message)
-		MulticastMessage(manager.clients, message)
+		// UnicastMessage(client, message, client)
+		MulticastMessage(manager.clients, message, client)
 	}
 }
 

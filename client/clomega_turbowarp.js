@@ -6,13 +6,6 @@
 /* eslint-disable */
 // prettier-ignore
 
-// console.log('🔌 Creating data channel: ', channel);
-// console.log('🟢 Public IP Address: ', address);
-// console.log('🟢 STUN server is reachable!');
-// console.log('🟢 TURN server is reachable!');
-// console.log('🔴 Error: ', error);
-// console.log('🟡 Offer: ', offer);
-
 (function (vm) {
 	/*
 	CloudLink Omega Client for Turbowarp v0.1.0
@@ -42,22 +35,12 @@
 	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 	SOFTWARE.
 	*/
-	
-	const cl_icon = "data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjEiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHdpZHRoPSIyMjUuMzU0OCIgaGVpZ2h0PSIyMjUuMzU0OCIgdmlld0JveD0iMCwwLDIyNS4zNTQ4LDIyNS4zNTQ4Ij48ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgtMTI3LjMyMjYsLTY3LjMyMjYpIj48ZyBkYXRhLXBhcGVyLWRhdGE9InsmcXVvdDtpc1BhaW50aW5nTGF5ZXImcXVvdDs6dHJ1ZX0iIHN0cm9rZT0ibm9uZSIgc3Ryb2tlLWxpbmVjYXA9ImJ1dHQiIHN0cm9rZS1saW5lam9pbj0ibWl0ZXIiIHN0cm9rZS1taXRlcmxpbWl0PSIxMCIgc3Ryb2tlLWRhc2hhcnJheT0iIiBzdHJva2UtZGFzaG9mZnNldD0iMCIgc3R5bGU9Im1peC1ibGVuZC1tb2RlOiBub3JtYWwiPjxwYXRoIGQ9Ik0xMjcuMzIyNiwxODBjMCwtNjIuMjMwMDEgNTAuNDQ3MzksLTExMi42Nzc0IDExMi42Nzc0LC0xMTIuNjc3NGM2Mi4yMzAwMSwwIDExMi42Nzc0LDUwLjQ0NzM5IDExMi42Nzc0LDExMi42Nzc0YzAsNjIuMjMwMDEgLTUwLjQ0NzM5LDExMi42Nzc0IC0xMTIuNjc3NCwxMTIuNjc3NGMtNjIuMjMwMDEsMCAtMTEyLjY3NzQsLTUwLjQ0NzM5IC0xMTIuNjc3NCwtMTEyLjY3NzR6IiBmaWxsPSIjZmY0ZDRjIiBmaWxsLXJ1bGU9Im5vbnplcm8iIHN0cm9rZS13aWR0aD0iMCIvPjxwYXRoIGQ9Ik0yODUuODU3NDIsMTUxLjA4Mzg1YzIzLjI0MDg2LDAgNDIuMDc4OSwxOC44Mzk0NiA0Mi4wNzg5LDQyLjA3ODljMCwyMy4yMzk0NCAtMTguODM4MDMsNDIuMDc4OSAtNDIuMDc4OSw0Mi4wNzg5aC05Mi4yNDA3NGMtMjMuMjQwODYsMCAtNDIuMDc4OSwtMTguODM5NDYgLTQyLjA3ODksLTQyLjA3ODljMCwtMjMuMjM5NDQgMTguODM4MDMsLTQyLjA3ODkgNDIuMDc4OSwtNDIuMDc4OWg0LjE4ODg3YzEuODExNTMsLTIxLjU3MDU1IDE5Ljg5MzU3LC0zOC41MTI4OSA0MS45MzE1LC0zOC41MTI4OWMyMi4wMzc5MywwIDQwLjExOTk3LDE2Ljk0MjM0IDQxLjkzMTUsMzguNTEyODl6IiBmaWxsPSIjZmZmZmZmIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIHN0cm9rZS13aWR0aD0iMSIvPjxwYXRoIGQ9Ik0yNjguODE1MzcsMjExLjU0MTI1YzAsMi4zOTMzMiAtMS45NDAwNSw0LjMzMzM3IC00LjMzMzM3LDQuMzMzMzdoLTE1LjM5NjAzYy0yLjM5MzMyLDAgLTQuMzMzMzcsLTEuOTQwMDUgLTQuMzMzMzcsLTQuMzMzMzd2LTkuMzU0NDVjMCwtMS42NzUwNyAwLjk2NTQ4LC0zLjE5OTk4IDIuNDc5MzQsLTMuOTE2NzJjNS44OTA1NywtMi43ODgwOSA5LjY5Njc5LC04Ljc5NzgzIDkuNjk2NzksLTE1LjMxMDI0YzAsLTkuMzM0MyAtNy41OTQyMywtMTYuOTI4NTMgLTE2LjkyODc1LC0xNi45Mjg1M2MtOS4zMzQ1MiwwIC0xNi45Mjg1Myw3LjU5NDIzIC0xNi45Mjg1MywxNi45Mjg1M2MwLDYuNTEyNjIgMy44MDYyMiwxMi41MjIxNSA5LjY5Njc5LDE1LjMxMDI0YzEuNTE0MDgsMC43MTY1MiAyLjQ3OTU2LDIuMjQxNDQgMi40Nzk1NiwzLjkxNjcydjkuMzU0NDVjMCwyLjM5MzMyIC0xLjk0MDA1LDQuMzMzMzcgLTQuMzMzMzcsNC4zMzMzN2gtMTUuMzk2NDdjLTIuMzkzMzIsMCAtNC4zMzMzNywtMS45NDAwNSAtNC4zMzMzNywtNC4zMzMzN2MwLC0yLjM5MzMyIDEuOTQwMDUsLTQuMzMzMzcgNC4zMzMzNywtNC4zMzMzN2gxMS4wNjMxdi0yLjQ0OTQ0Yy0zLjI0MzA5LC0xLjk5ODEyIC02LjAwOTA5LC00LjY5OTc2IC04LjA5MzY2LC03LjkyNjgyYy0yLjY3MDg4LC00LjEzNDQ3IC00LjA4MjY5LC04LjkzMTA4IC00LjA4MjY5LC0xMy44NzE3OGMwLC0xNC4xMTMzNiAxMS40ODE5MiwtMjUuNTk1MjcgMjUuNTk1MjcsLTI1LjU5NTI3YzE0LjExMzM2LDAgMjUuNTk1NDksMTEuNDgxOTIgMjUuNTk1NDksMjUuNTk1MDZjMCw0Ljk0MDcgLTEuNDExODEsOS43Mzc1MiAtNC4wODI0NywxMy44NzE3OGMtMi4wODQ1NywzLjIyNzA2IC00Ljg1MDM0LDUuOTI4OTIgLTguMDkzNjYsNy45MjcwNHYyLjQ0OTQ0aDExLjA2MjY2YzIuMzkzMzIsMCA0LjMzMzM3LDEuOTQwMDUgNC4zMzMzNyw0LjMzMzM3eiIgZmlsbD0iI2ZmNGQ0YyIgZmlsbC1ydWxlPSJub256ZXJvIiBzdHJva2Utd2lkdGg9IjEiLz48L2c+PC9nPjwvc3ZnPjwhLS1yb3RhdGlvbkNlbnRlcjoxMTIuNjc3Mzk5OTk5OTk5OTk6MTEyLjY3NzQtLT4=";
-	const cl_block = "data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjEiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHdpZHRoPSIxNzYuMzk4NTQiIGhlaWdodD0iMTIyLjY3MDY5IiB2aWV3Qm94PSIwLDAsMTc2LjM5ODU0LDEyMi42NzA2OSI+PGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTE1MS44MDA3MywtMTE4LjY2NDY1KSI+PGcgZGF0YS1wYXBlci1kYXRhPSJ7JnF1b3Q7aXNQYWludGluZ0xheWVyJnF1b3Q7OnRydWV9IiBzdHJva2U9Im5vbmUiIHN0cm9rZS13aWR0aD0iMSIgc3Ryb2tlLWxpbmVjYXA9ImJ1dHQiIHN0cm9rZS1saW5lam9pbj0ibWl0ZXIiIHN0cm9rZS1taXRlcmxpbWl0PSIxMCIgc3Ryb2tlLWRhc2hhcnJheT0iIiBzdHJva2UtZGFzaG9mZnNldD0iMCIgc3R5bGU9Im1peC1ibGVuZC1tb2RlOiBub3JtYWwiPjxwYXRoIGQ9Ik0yODYuMTIwMzcsMTU3LjE3NzU1YzIzLjI0MDg2LDAgNDIuMDc4OSwxOC44Mzk0NiA0Mi4wNzg5LDQyLjA3ODljMCwyMy4yMzk0NCAtMTguODM4MDMsNDIuMDc4OSAtNDIuMDc4OSw0Mi4wNzg5aC05Mi4yNDA3NGMtMjMuMjQwODYsMCAtNDIuMDc4OSwtMTguODM5NDYgLTQyLjA3ODksLTQyLjA3ODljMCwtMjMuMjM5NDQgMTguODM4MDMsLTQyLjA3ODkgNDIuMDc4OSwtNDIuMDc4OWg0LjE4ODg3YzEuODExNTMsLTIxLjU3MDU1IDE5Ljg5MzU3LC0zOC41MTI4OSA0MS45MzE1LC0zOC41MTI4OWMyMi4wMzc5MywwIDQwLjExOTk3LDE2Ljk0MjM0IDQxLjkzMTUsMzguNTEyODl6IiBmaWxsPSIjZmZmZmZmIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiLz48cGF0aCBkPSJNMjY5LjA3ODMzLDIxNy42MzQ5NGMwLDIuMzkzMzMgLTEuOTQwMDYsNC4zMzMzNyAtNC4zMzMzNyw0LjMzMzM3aC0xNS4zOTYwNGMtMi4zOTMzMywwIC00LjMzMzM3LC0xLjk0MDA1IC00LjMzMzM3LC00LjMzMzM3di05LjM1NDQ1YzAsLTEuNjc1MDYgMC45NjU0NywtMy4xOTk5OCAyLjQ3OTMzLC0zLjkxNjcyYzUuODkwNTcsLTIuNzg4MDkgOS42OTY3OSwtOC43OTc4MyA5LjY5Njc5LC0xNS4zMTAyNGMwLC05LjMzNDMgLTcuNTk0MjMsLTE2LjkyODUzIC0xNi45Mjg3NSwtMTYuOTI4NTNjLTkuMzM0NTIsMCAtMTYuOTI4NTMsNy41OTQyMyAtMTYuOTI4NTMsMTYuOTI4NTNjMCw2LjUxMjYyIDMuODA2MjIsMTIuNTIyMTQgOS42OTY3OSwxNS4zMTAyNGMxLjUxNDA4LDAuNzE2NTIgMi40Nzk1NiwyLjI0MTQ0IDIuNDc5NTYsMy45MTY3MnY5LjM1NDQ1YzAsMi4zOTMzMyAtMS45NDAwNiw0LjMzMzM3IC00LjMzMzM3LDQuMzMzMzdoLTE1LjM5NjQ3Yy0yLjM5MzMzLDAgLTQuMzMzMzcsLTEuOTQwMDUgLTQuMzMzMzcsLTQuMzMzMzdjMCwtMi4zOTMzMyAxLjk0MDA2LC00LjMzMzM3IDQuMzMzMzcsLTQuMzMzMzdoMTEuMDYzMXYtMi40NDk0NGMtMy4yNDMxLC0xLjk5ODEyIC02LjAwOTA5LC00LjY5OTc2IC04LjA5MzY2LC03LjkyNjgyYy0yLjY3MDg3LC00LjEzNDQ3IC00LjA4MjY4LC04LjkzMTA4IC00LjA4MjY4LC0xMy44NzE3N2MwLC0xNC4xMTMzNiAxMS40ODE5MiwtMjUuNTk1MjggMjUuNTk1MjcsLTI1LjU5NTI4YzE0LjExMzM2LDAgMjUuNTk1NSwxMS40ODE5MiAyNS41OTU1LDI1LjU5NTA2YzAsNC45NDA3IC0xLjQxMTgxLDkuNzM3NTIgLTQuMDgyNDcsMTMuODcxNzdjLTIuMDg0NTcsMy4yMjcwNiAtNC44NTAzNSw1LjkyODkyIC04LjA5MzY2LDcuOTI3MDR2Mi40NDk0NGgxMS4wNjI2N2MyLjM5MzMzLDAgNC4zMzMzNywxLjk0MDA2IDQuMzMzMzcsNC4zMzMzN3oiIGZpbGw9IiNmZjRkNGMiIGZpbGwtcnVsZT0ibm9uemVybyIvPjwvZz48L2c+PC9zdmc+PCEtLXJvdGF0aW9uQ2VudGVyOjg4LjE5OTI2OTk5OTk5OTk4OjYxLjMzNTM0NTAwMDAwMDAwNC0tPg==";
 
-  	const runtime = vm.runtime;
-
-	const version = {
-		editorType: "TurboWarp",
-		versionNumber: 0,
-		versionString: "0.1.0",
-	};
-
-	let clvars = {
+	var clVars = {
 		isSTUNReachable: false,
 		isTURNReachable: false,
-		servers: [
+		signalingServer: 'wss://i5-imac.local:3000/ws/foobar?v=1.0',
+		iceServers: [
 			{
 				urls: "stun:stun.mikedev101.cc:3478",
 			},
@@ -67,101 +50,264 @@
 				credential: 'test123'
 			}
 		],
-		pc: null,
-		chan: null,
-	}
-	
-	function waitToCompleteIceGathering() {
-		return new Promise((resolve) => {
-			clvars.pc.addEventListener(
-				"icegatheringstatechange", 
-				(e) =>
-					e.target.iceGatheringState === "complete" && resolve(clvars.pc.localDescription),
-			)
-		});
+		isHost: false,
+		signaling: null,
+		localCom: null,
+		txChan: null,
+		rxChan: null,
+		ugi: "",
+		myOffer: null,
+		myAnswer: null,
+		icePeers: [],
 	}
 
-	async function newPeer(remoteOffer) {
-		await clvars.pc.setRemoteDescription(remoteOffer);
-		const offer = await clvars.pc.createOffer();
-		console.log('🟡 Offer: ', offer);
-		await clvars.pc.setLocalDescription(offer);
-		if (pc.canTrickleIceCandidates) {
-			console.log('🧊 ICE Candidate: ', clvars.pc.localDescription);
-			return clvars.pc.localDescription;
+	async function handleICE(pc, e, label) {
+		if (!e.candidate) return;
+		console.log(`${label}🧊🔍 Got ICE candidate: `, e.candidate);
+		
+		// Check for responses from STUN
+		if (e.candidate.type == 'srflx' || e.candidate.candidate.includes('srflx')) {
+			let ip = /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/;
+			let address = e.candidate.address 
+				? e.candidate.address 
+				: e.candidate.candidate.match(ip);
+			console.log('🟢 Public IP Address: ', address);
+			console.log('🟢 STUN server is reachable!');
+			clVars.isSTUNReachable = true;
+		}
+
+		// Check for responses from STUN
+		if (e.candidate.type == 'relay' || e.candidate.candidate.includes('relay')) {
+			console.log('🟢 TURN server is reachable!');
+			clVars.isTURNReachable = true;
+		}
+
+		// Add the peer to our records
+		if (!clVars.icePeers.includes(e.candidate)) {
+			console.log('🧊✅ ICE candidate added: ', e.candidate);
+			clVars.icePeers.push(e.candidate);
+		}
+	}
+
+	async function sendData(opcode, data) {
+		var message = {
+			opcode: opcode,
+			payload: data,
+			ugi: clVars.ugi
+		};
+		clVars.signaling.send(JSON.stringify(message));
+	}
+
+	async function handleChannelEvents(com, label) {
+
+		com.onnegotiationneeded = async(e) => {
+			console.log(`${label}🗣️ negotiation needed: `, e)
+			if (com.signalingState != "stable") return;
 		};
 
-		const answer = await waitToCompleteIceGathering();
-		// TODO: send answer to peer
-		console.log('🟢 Got answer: ', answer);
+		com.onicecandidateerror = async(e) => {
+			console.error(`${label}🧊⚠️ ICE candidate error (${e.errorCode}): ${e.errorText}`, e);
+		};
+
+		com.oniceconnectionstatechange = async(e) => {
+			console.log(`${label}🧊⌛ ICE connection state has changed: `, e);
+		};
+
+		com.onicegatheringstatechange = async(e) => {
+			console.log(`${label}🧊⌛ ICE gathering state has changed: `, e);
+		};
 	}
 
-	async function initConnection() {
-		// Create new WebRTC object
-		clvars.pc = new RTCPeerConnection({
-			iceServers: clvars.servers,
-			iceTransportPolicy: 'all',
-		});
-		console.log('🔌 Initializing connection object: ', clvars.pc);
+	async function handleChannelStatusChange(chan, label) {
 
-		// Create initalizing data channel
-		clvars.chan = clvars.pc.createDataChannel('init');
-		console.log('🔌 Creating data channel: ', clvars.chan);
+		chan.onmessage = (e) => {
+			console.log(`${label}🟢 channel new data! `, e);
+		}
+
+		chan.onopen = (e) => {
+			console.log(`${label}🟢 channel opened! `, e);
+		}
+
+		chan.onclose = (e) => {
+			console.log(`${label}🔴 channel closed! `, e);
+		}
+
+		chan.onerror = (e) => {
+			console.log(`${label}⚠️ channel error: `, e);
+		}
+	}
+
+	async function handleSignalerEvent(message) {
+		switch (message.opcode) {
+			case "QUERY":
+				if (!clVars.isHost) return;
+
+				// Handle query request
+				if (message.ugi != clVars.ugi) {
+					console.log("Ignoring QUERY request from a different UGI.");
+					return;
+				};
+
+				// Send ICE
+				/*
+				for (peer of clVars.icePeers) {
+					console.log('🧊⬆️ Sending ICE peer: ', peer);
+					sendData("ICE", peer);
+				}*/
+
+				// Send offer
+				console.log('🟡⬆️ Sending offer: ', clVars.myOffer);
+				await sendData("NEW_OFFER", clVars.myOffer);
+
+				break;
+			
+			case "ICE":
+				console.log('🟡⬇️ Got an ICE offer: ', message.payload);
+				clVars.localCom.addIceCandidate(message.payload)
+				.then(() => {
+					console.log('🧊✅ ICE candidate added!');
+				})
+				.catch((error) => {
+					console.error('🧊⚠️ Failed to add ICE candidate! ', error);
+				});
+
+			case "NEW_OFFER":
+				if (clVars.isHost) return;
+				console.log('🟡⬇️ Got an offer: ', message.payload);
+				clVars.localCom.setRemoteDescription(
+					new RTCSessionDescription(message.payload),
+					async() => {
+						// Create response
+						clVars.myAnswer = await clVars.localCom.createAnswer();
+						console.log('🟡⬆️ Created answer: ', clVars.myAnswer);
+						sendData("ACK_OFFER", clVars.myAnswer);
+					},
+					async(error) => {
+						console.log('⚠️ Failed to set remote RDP: ', error);
+					}
+				)
+				
+				break;
+			
+			case "ACK_OFFER":
+				if (!clVars.isHost) return;
+				console.log('🟡⬇️ Got an answer: ', message.payload);
+				clVars.localCom.setRemoteDescription(
+					new RTCSessionDescription(message.payload),
+					() => {},
+					async(error) => {
+						console.log('⚠️ Failed to set remote RDP: ', error);
+					}
+				)
+				break;
+			
+			case "GOODBYE":
+				break;
+		}
+	}
+
+	async function handleCreateDescriptionError(e) {
+		return;
+	}
+
+	async function newRTC(isHost) {
+
+		// Create new WebRTC objects
+		clVars.localCom = new RTCPeerConnection({iceServers: clVars.iceServers});
+		console.log('🔃 Initializing connection object: ', clVars.localCom);
+
+		// Create initalizing TX data channel
+		clVars.txChan = clVars.localCom.createDataChannel('txChan');
+		console.log('🔃 Creating data channel: ', clVars.txChan);
+
+		// Handle ICE events
+		clVars.localCom.onicecandidate = async(e) => await handleICE(clVars.localCom, e, "");
+
+		// Handle COM events
+		handleChannelEvents(clVars.localCom, "");
+
+		// Handle channel status changes
+		handleChannelStatusChange(clVars.txChan, "");
+
+		// Handle signal state changes
+		clVars.localCom.signalingstatechange = (e) => {
+			switch (e.signalingSate) {
+				case "stable":
+					console.log(`🟢 ICE negotiation complete `, e);
+					break;
+				case "have-local-offer":
+					console.log(`🟢 Local offer generated and applied! `, e);
+					break;
+				case "have-remote-offer":
+					console.log(`🟢 Remote offer received and applied! `, e);
+					break;
+				case "have-local-pranswer":
+					console.log(`🟢 Local offer answered and applied! `, e);
+					break;
+				case "have-remote-pranswer":
+					console.log(`🟢 Remote offer answered and applied! `, e);
+					break;
+			}
+		}
 
 		// Create offer
-		var offer = await clvars.pc.createOffer();
-		console.log('🟡 Created offer: ', offer);
-		clvars.pc.setLocalDescription(offer);
+		if (isHost) {
+			clVars.myOffer = await clVars.localCom.createOffer();
+			console.log('🟡⬆️ Created offer: ', clVars.myOffer);
+			clVars.localCom.setLocalDescription(clVars.myOffer)
+			.then(async() => {
 
-		// TODO: Broadcast offer to signaling server
-		// console.log(JSON.stringify(offer));
+				// Send offer
+				console.log('🟡⬆️ Sending offer: ', clVars.myOffer);
+				await sendData("NEW_OFFER", clVars.myOffer);
 
-		clvars.pc.onicecandidate = (e) => {
-			if (!e.candidate) return;
-			console.log('🧊 Got ICE candidate: ', e.candidate);
+			})
+			.catch(handleCreateDescriptionError);
+		}
 
-			// Handle trickle ICE
-			if (clvars.pc.canTrickleIceCandidates) {
+		// Attempt connection
+		else {
+			clVars.myOffer = await clVars.localCom.createOffer();
+			console.log('🟡⬆️ Set offer: ', clVars.myOffer);
+			clVars.localCom.setLocalDescription(clVars.myOffer)
 
-				// TODO: send candidate to peer(s)
-				
-				console.log('☃️ Tricke ice detected! ', e.candidate);
+			// Send query
+			console.log('🟡⬆️ Sending query');
+			await sendData("QUERY", null);
+			console.log('🟡⬇️ Waiting for offer to come through');
+		}
+	}
+
+	async function initConnection(isHost) {
+		clVars.isHost = isHost;
+
+		// Connect to signaling server
+		clVars.signaling = await new WebSocket(clVars.signalingServer);
+		console.log('🔃📶🔌 Connecting to signaling backend: ', clVars.signaling);
+
+		// Handle disconnect
+		clVars.signaling.onclose = (e) => {
+			console.log('🟥📶🔌 Disconnected from signaling backend: ', e);
+		}
+
+		// Handle signaling events
+		clVars.signaling.onmessage = async(e) => {
+			let resp;
+			try {
+				resp = JSON.parse(e.data);
+			} catch (err) {
+				console.warn('⚠️ JSON Parse error: ', err);
 				return;
 			}
-			
-			// Check for responses from STUN
-			if (e.candidate.type == 'srflx' || e.candidate.candidate.includes('srflx')) {
-                let ip = /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/;
-                let address = e.candidate.address 
-                    ? e.candidate.address 
-                    : e.candidate.candidate.match(ip);
-                console.log('🟢 Public IP Address: ', address);
-				console.log('🟢 STUN server is reachable!');
-				clvars.isSTUNReachable = true;
-            }
+			console.log('🟩📶💬 Got message from signaling backend: ', resp);
+			handleSignalerEvent(resp);
+		}
 
-			// Check for responses from STUN
-            if (e.candidate.type == 'relay' || e.candidate.candidate.includes('relay')) {
-                console.log('🟢 TURN server is reachable!');
-				clvars.isTURNReachable = true;
-            }
-		};
-
-		clvars.pc.ondatachannel  = (e) => {
-			console.log('🔌 Data channel: ', e);
-		};
-
-		clvars.pc.onicecandidateerror = (e) => {
-			console.error(`🌧️ ICE Candidate error (${e.errorCode}): ${e.errorText}`, e);
-		};
-
-		clvars.pc.oniceconnectionstatechange  = (e) => {
-			console.log('❄️ ICE connection state has changed: ', e);
-		};
-
-		clvars.pc.onicegatheringstatechange   = (e) => {
-			console.log('🌨️ ICE gathering state has changed: ', e);
-		};
+		// Handle signal backend connection (begin RTC lifespan)
+		clVars.signaling.onopen = (e) => {
+			console.log('🟩📶🔌 Connected to signaling backend: ', e);
+			newRTC(isHost);
+		}
 	}
 
 	class CloudLinkOmega {
@@ -170,8 +316,8 @@
 				id: 'cloudlinkomega',
 				name: 'CloudLink Ω',
 				// docsURI: 'https://cloudlink.mikedev101.cc/omega/', # TODO: website
-				blockIconURI: cl_block,
-				menuIconURI: cl_icon,
+				// blockIconURI: cl_block,
+				// menuIconURI: cl_icon,
 				color1: "#ff4d4c",
 				color2: "#ff6160",
 				color3: "#ff7473",
@@ -187,27 +333,66 @@
 						text: 'Is TURN reachable?'
 					},
 					{
-						opcode: 'initalize',
+						opcode: 'initalizeHost',
 						blockType: 'command',
-						text: 'Initialize',
+						text: 'Host game [UGI]',
+						arguments: {
+							UGI: {
+								type: 'string',
+								defaultValue: 'demo',
+							}
+						}
+					},
+					{
+						opcode: 'initalizePeer',
+						blockType: 'command',
+						text: 'Connect to game [UGI]',
+						arguments: {
+							UGI: {
+								type: 'string',
+								defaultValue: 'demo',
+							}
+						}
+					},
+					{
+						opcode: 'sendSomething',
+						blockType: 'command',
+						text: 'Send data [DATA]',
+						arguments: {
+							DATA: {
+								type: 'string',
+								defaultValue: '',
+							}
+						}
 					},
 				]
 			};
 		}
 
 		getSTUNConnectivity() {
-			return clvars.isSTUNReachable;
+			return clVars.isSTUNReachable;
 		}
 		
 		getTURNConnectivity() {
-			return clvars.isTURNReachable;
+			return clVars.isTURNReachable;
 		}
 
-		async initalize() {
-			if (clvars.pc != null) return;
-			initConnection();
+		initalizeHost(args) {
+			if (clVars.localCom != null) return;
+			clVars.ugi = args.UGI;
+			initConnection(true);
 		}
 
+		initalizePeer(args) {
+			if (clVars.localCom != null) return;
+			clVars.ugi = args.UGI;
+			initConnection(false);
+		}
+
+		sendSomething(args) {
+			if (clVars.localCom != null) return;
+			clVars.localCom.send(args.DATA);
+		}
 	}
 	vm.extensionManager._registerInternalExtension(new CloudLinkOmega());
 })(vm);
