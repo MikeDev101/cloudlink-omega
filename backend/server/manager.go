@@ -18,8 +18,38 @@ type Manager struct {
 	clients      map[uuid.UUID]*Client
 	clientsMutex sync.RWMutex
 
+	// Registered hosts
+	hosts      map[interface{}]*Client
+	hostsMutex sync.RWMutex
+
+	// Registered peers
+	peers      map[interface{}]*Client
+	peersMutex sync.RWMutex
+
 	// Locks states before registering sessions
 	sync.RWMutex
+}
+
+func NewPeer(room interface{}, client *Client, manager *Manager) {
+	// Get lock
+	manager.peersMutex.Lock()
+
+	// Create peer
+	manager.peers[room] = client
+
+	// Free lock
+	manager.peersMutex.Unlock()
+}
+
+func NewHost(room interface{}, client *Client, manager *Manager) {
+	// Get lock
+	manager.hostsMutex.Lock()
+
+	// Create host
+	manager.hosts[room] = client
+
+	// Free lock
+	manager.hostsMutex.Unlock()
 }
 
 // NewClient assigns a UUID to a websocket client, and returns a initialized Client struct for use with a manager's AddClient.
@@ -44,6 +74,8 @@ func New(name string) *Manager {
 	manager := &Manager{
 		name:    name,
 		clients: make(map[uuid.UUID]*Client),
+		hosts:   make(map[interface{}]*Client),
+		peers:   make(map[interface{}]*Client),
 	}
 
 	return manager

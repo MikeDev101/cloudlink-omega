@@ -54,14 +54,78 @@ func SignalingOpcode(message []byte, manager *Manager, client *Client) {
 		}), nil)
 
 	case opcodeTable["INIT"]:
+
+		// Require a username to be declared
+		if packet.Payload == nil {
+			log.Printf("Missing username (payload) value")
+			UnicastMessage(client, JSONDump(&Packet{
+				Opcode:  opcodeTable["VIOLATION"],
+				Payload: "Missing username (payload) value",
+			}), nil)
+			client.CloseWithMessage(websocket.CloseProtocolError, "Missing username (payload) value")
+			return
+		}
+
 		// Log the server noticing the client saying "hello"
-		log.Printf("Client %s declared existence on the server", client.id)
+		log.Printf("Client %s exists! Hello there, \"%s\"!", client.id, packet.Payload)
 
 		// Let the client know the server said "hello" back
 		UnicastMessage(client, JSONDump(&Packet{
 			Opcode:  opcodeTable["INIT_OK"],
 			Payload: client.id,
 		}), nil)
+
+	case opcodeTable["CONFIG_HOST"]:
+
+		// Require a lobby ID to be declared
+		if packet.Payload == nil {
+			log.Printf("Missing lobby ID (payload) value")
+			UnicastMessage(client, JSONDump(&Packet{
+				Opcode:  opcodeTable["VIOLATION"],
+				Payload: "Missing lobby ID (payload) value",
+			}), nil)
+			client.CloseWithMessage(websocket.CloseProtocolError, "Missing lobby ID (payload) value")
+			return
+		}
+
+		// Log the server noticing the client becoming a host
+		log.Printf("Client %s is a game host, and wants to create room %s", client.id, packet.Payload)
+
+		// Add client to hosts storage for manager
+		NewHost(packet.Payload, client, manager)
+
+		// Let the client know the server has made it a game host
+		UnicastMessage(client, JSONDump(&Packet{
+			Opcode: opcodeTable["ACK_HOST"],
+		}), nil)
+
+		// TODO: notify all peers that are looking for a host from this lobby ID (opcode 9 NEW_HOST)
+
+	case opcodeTable["CONFIG_PEER"]:
+
+		// Require a lobby ID to be declared
+		if packet.Payload == nil {
+			log.Printf("Missing lobby ID (payload) value")
+			UnicastMessage(client, JSONDump(&Packet{
+				Opcode:  opcodeTable["VIOLATION"],
+				Payload: "Missing lobby ID (payload) value",
+			}), nil)
+			client.CloseWithMessage(websocket.CloseProtocolError, "Missing lobby ID (payload) value")
+			return
+		}
+
+		// Log the server noticing the client becoming a peer
+		log.Printf("Client %s is a game peer, and wants to join room %s", client.id, packet.Payload)
+
+		// Add client to peers storage for manager
+		NewPeer(packet.Payload, client, manager)
+
+		// Let the client know the server has made it a game peer
+		UnicastMessage(client, JSONDump(&Packet{
+			Opcode: opcodeTable["ACK_PEER"],
+		}), nil)
+
+		// TODO: notify all hosts in that lobby ID that there is a new peer (opcode 8 NEW_PEER)
 
 	default:
 		log.Printf("Unrecognized message opcode value %s", strconv.Itoa(packet.Opcode))
