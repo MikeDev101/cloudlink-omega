@@ -107,6 +107,7 @@ This message is sent to a host when a peer wants to join their game.
 | 36 | PASSWORD_REQUIRED | server > client | Peer, to join this lobby you need to enter a password. |
 | 37 | PASSWORD_ACK | client > server | Signaler, here is the password. Please let me in. |
 | 38 | PASSWORD_FAIL | server > client | Client, that password was incorrect. |
+| 39 | PEER_INVALID | server > client | You specified a peer ID that was invalid (Did you specify a UUID as rx argument?) |
 
 ## Connection lifespan of a host
 
