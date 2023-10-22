@@ -1,4 +1,4 @@
-package cloudlink
+package cloudlinkOmega
 
 type Packet struct {
 	Opcode  int         `json:"opcode"`

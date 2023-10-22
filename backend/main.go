@@ -7,7 +7,7 @@ import (
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 
-	cloudlink "github.com/mikedev101/cloudlink-omega/backend/server"
+	cloudlinkOmega "github.com/mikedev101/cloudlink-omega/backend/server"
 )
 
 func main() {
@@ -30,7 +30,7 @@ func main() {
 
 	// Bind CloudLink server to websocket path
 	app.Get("/ws/:id", websocket.New(func(client *websocket.Conn) {
-		cloudlink.SessionHandler(client)
+		cloudlinkOmega.SessionHandler(client)
 	}))
 
 	//log.Fatal(app.Listen(":3000"))

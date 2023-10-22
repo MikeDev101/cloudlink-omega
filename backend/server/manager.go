@@ -1,4 +1,4 @@
-package cloudlink
+package cloudlinkOmega
 
 import (
 	"log"
