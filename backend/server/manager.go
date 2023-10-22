@@ -18,10 +18,6 @@ type Manager struct {
 	clients      map[uuid.UUID]*Client
 	clientsMutex sync.RWMutex
 
-	// Nested managers
-	managers      map[interface{}]*Manager
-	managersMutex sync.RWMutex
-
 	// Locks states before registering sessions
 	sync.RWMutex
 }
@@ -46,9 +42,8 @@ func NewClient(conn *websocket.Conn, manager *Manager) *Client {
 
 func New(name string) *Manager {
 	manager := &Manager{
-		name:     name,
-		clients:  make(map[uuid.UUID]*Client),
-		managers: make(map[interface{}]*Manager),
+		name:    name,
+		clients: make(map[uuid.UUID]*Client),
 	}
 
 	return manager

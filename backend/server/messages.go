@@ -3,17 +3,15 @@ package cloudlink
 import (
 	"log"
 
-	// "github.com/goccy/go-json"
+	"github.com/goccy/go-json"
 	"github.com/gofiber/contrib/websocket"
 	"github.com/google/uuid"
 )
 
-/*
 func JSONDump(message any) []byte {
 	payload, _ := json.Marshal(message)
 	return payload
 }
-*/
 
 // MulticastMessage broadcasts a payload to multiple clients.
 func MulticastMessage(clients map[uuid.UUID]*Client, message []byte, ignoreOrigin *Client) {
