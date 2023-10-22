@@ -1,7 +1,8 @@
 package cloudlink
 
 type Packet struct {
-	Opcode   string `json:"opcode"`
+	Opcode   int `json:"opcode"`
 	Payload  interface{} `json:"payload"`
-	Callback interface{} `json:"callback"`
+	Tx interface{} `json:"tx"`
+	Rx interface{} `json:"rx"`
 }

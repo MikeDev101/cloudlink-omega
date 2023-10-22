@@ -17,9 +17,6 @@ func main() {
 	// Create fiber application
 	app := fiber.New()
 
-	// Create CloudLink server
-	manager := cloudlink.New("root")
-
 	// Add a websocket path
 	app.Use("/ws", func(c *fiber.Ctx) error {
 		// IsWebSocketUpgrade returns true if the client
@@ -33,7 +30,7 @@ func main() {
 
 	// Bind CloudLink server to websocket path
 	app.Get("/ws/:id", websocket.New(func(client *websocket.Conn) {
-		cloudlink.SessionHandler(client, manager)
+		cloudlink.SessionHandler(client)
 	}))
 
 	//log.Fatal(app.Listen(":3000"))
