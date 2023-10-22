@@ -43,9 +43,9 @@ func SessionCleanup(manager *Manager, client *Client) {
 	manager.RemoveClient(client)
 
 	// Destroy manager if no clients are connected
-	if length(manager.clients) == 0 {
+	if len(manager.clients) == 0 {
 		log.Printf("Deleting empty manager %s", manager.name)
-		manager = Manager{}
+		manager = &Manager{}
 	}
 }
 
