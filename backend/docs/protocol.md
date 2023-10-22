@@ -5,12 +5,12 @@ CloudLink Omega utilizes WebSockets to handle signaling. The protocol for negoti
 The server's websocket endpoint can be connected using the following format:
 `wss://the.server.tld:port/ws/{ugi}?v={version}`
 
-	ugi - Unique Game Identifier
-	version - API version (should default to 0)
+`ugi` - Unique Game Identifier - See API docs
+`version` - API version (always 0)
 
 
 ## Message format
-All signaling events are JSON-encoded text frames. No newlines or special formatting.
+All signaling events are JSON-encoded text frames. No newlines or special formatting. Unless stated below with extra formatting info, messages will comply with this format.
 ```js
 {
 	opcode: int, // See opcodes
@@ -27,10 +27,11 @@ Send this message to the server to create a game host.
 {
 	opcode: 4, // CONFIG_HOST opcode 
 	payload: {
-		lobby_id: string // Name of your lobby you want to create
-		allow_host_reclaim: bool // False - As soon as you leave, this lobby is destroyed. True - Server or peers will decide who becomes the host. Applies to argument allow_peers_to_claim_host.
-		allow_peers_to_claim_host: bool // False - Server will decide the new host. True - Peers will decide who becomes host
-		max_peers: int // set to 0 for unlimited peers
+		lobby_id: string, // Name of your lobby you want to create
+		allow_host_reclaim: bool, // False - As soon as you leave, this lobby is destroyed. True - Server or peers will decide who becomes the host. Applies to argument allow_peers_to_claim_host.
+		allow_peers_to_claim_host: bool, // False - Server will decide the new host. True - Peers will decide who becomes host
+		max_peers: int, // set to 0 for unlimited peers
+		password: string, // Prevent access to your room with a password. Set to an empty string to allow any peer to join.
 	},
 }
 ```
@@ -42,9 +43,9 @@ This message is sent to peers when a new host is created.
 {
 	opcode: 9, // NEW_HOST opcode 
 	payload: {
-		id: string // UUID of the host (use this for tx argument)
-		username: string // username of the host
-		lobby_id: string // lobby ID the host has created
+		id: string, // UUID of the host (use this for tx argument)
+		username: string, // username of the host
+		lobby_id: string, // lobby ID the host has created
 	},
 }
 ```
@@ -103,6 +104,9 @@ This message is sent to a host when a peer wants to join their game.
 | 33 | UNLOCK | client > server | Signaler, pleas allow peers to join my lobby again. |
 | 34 | SIZE | client > server | Signaler, please change the maximum number of peers in the lobby. |
 | 35 | KICK | client > server | Signaler, please kick this peer from my lobby. |
+| 36 | PASSWORD_REQUIRED | server > client | Peer, to join this lobby you need to enter a password. |
+| 37 | PASSWORD_ACK | client > server | Signaler, here is the password. Please let me in. |
+| 38 | PASSWORD_FAIL | server > client | Client, that password was incorrect. |
 
 ## Connection lifespan of a host
 
