@@ -41,7 +41,7 @@ This message is sent to peers when a new host is created.
 
 ```js
 {
-	opcode: 9, // NEW_HOST opcode 
+	opcode: 8, // NEW_HOST opcode 
 	payload: {
 		id: string, // UUID of the host (use this for tx argument)
 		username: string, // username of the host
@@ -55,7 +55,7 @@ This message is sent to a host when a peer wants to join their game.
 
 ```js
 {
-	opcode: 8, // NEW_PEER opcode 
+	opcode: 9, // NEW_PEER opcode 
 	payload: {
 		id: string // UUID of the peer (use this for tx argument)
 		username: string // username of the host
