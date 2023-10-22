@@ -11,7 +11,7 @@ type Client struct {
 	connection      *websocket.Conn
 	connectionMutex sync.RWMutex
 	manager         *Manager
-	id            uuid.UUID
+	id              uuid.UUID
 
 	// Lock state for rooms
 	sync.RWMutex
