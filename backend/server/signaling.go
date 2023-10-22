@@ -41,7 +41,13 @@ func SignalingOpcode(message []byte, manager *Manager, client *Client) {
 	// Parse incoming JSON
 	var packet Packet
 	if err := json.Unmarshal(message, &packet); err != nil {
-		client.CloseWithMessage(websocket.CloseUnsupportedData, "JSON Parsing error")
+		log.Printf("Got invalid/malformed JSON: JSON parsing error!")
+		UnicastMessage(client, JSONDump(&Packet{
+			Opcode:  opcodeTable["VIOLATION"],
+			Payload: "Got invalid/malformed JSON: JSON parsing error!",
+		}), nil)
+		client.CloseWithMessage(websocket.CloseUnsupportedData, "Got invalid/malformed JSON: JSON parsing error!")
+		return
 	}
 
 	// Handle opcodes
