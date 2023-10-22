@@ -13,6 +13,17 @@ type Client struct {
 	manager         *Manager
 	id              uuid.UUID
 
+	// Manage username
+	name      string
+	nameSet   bool
+	nameMutex sync.RWMutex
+
+	// Manage state
+	isHost     bool
+	isPeer     bool
+	lobbyID    string
+	stateMutex sync.RWMutex
+
 	// Lock state for rooms
 	sync.RWMutex
 }

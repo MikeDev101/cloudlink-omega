@@ -3,7 +3,7 @@ CloudLink Omega utilizes WebSockets to handle signaling. The protocol for negoti
 
 ## URL endpoint
 The server's websocket endpoint can be connected using the following format:
-`wss://the.server.tld:port/ws/{ugi}?v={version}`
+`wss://the.server.tld:port/signaling/{ugi}?v={version}`
 
 `ugi` - Unique Game Identifier - See API docs
 `version` - API version (always 0)

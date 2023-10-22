@@ -10,46 +10,106 @@ import (
 
 var ServerVersion string = "0.1.0"
 
+type Lobby struct {
+	Host                  *Client
+	Peers                 []*Client
+	AllowHostReclaim      bool
+	AllowPeersToClaimHost bool
+	MaxPeers              int
+	Password              string
+	Locked                bool
+}
+
 type Manager struct {
 	// Friendly name for manager
 	name string
 
 	// Registered client sessions
-	clients      map[uuid.UUID]*Client
-	clientsMutex sync.RWMutex
+	clients          map[uuid.UUID]*Client
+	clientNames      map[string]*Client
+	clientsMutex     sync.RWMutex
+	clientNamesMutex sync.RWMutex
 
-	// Registered hosts
-	hosts      map[interface{}]*Client
-	hostsMutex sync.RWMutex
-
-	// Registered peers
-	peers      map[interface{}]*Client
-	peersMutex sync.RWMutex
+	// Lobbies storage
+	lobbies      map[string]*Lobby
+	lobbiesMutex sync.RWMutex
 
 	// Locks states before registering sessions
 	sync.RWMutex
 }
 
-func NewPeer(room interface{}, client *Client, manager *Manager) {
-	// Get lock
-	manager.peersMutex.Lock()
+func (lobby *Lobby) removePeer(target *Client) []*Client {
+	slice := lobby.Peers
+	for i, value := range slice {
+		if value == target {
+			// Swap the element to remove with the last element
+			slice[i] = slice[len(slice)-1]
 
-	// Create peer
-	manager.peers[room] = client
-
-	// Free lock
-	manager.peersMutex.Unlock()
+			// Remove the last element
+			slice = slice[:len(slice)-1]
+			return slice
+		}
+	}
+	return slice
 }
 
-func NewHost(room interface{}, client *Client, manager *Manager) {
-	// Get lock
-	manager.hostsMutex.Lock()
+func NewPeer(lobbyID string, client *Client, manager *Manager) bool {
+	var result = false
 
-	// Create host
-	manager.hosts[room] = client
+	// Get lock
+	manager.lobbiesMutex.Lock()
+
+	// Check if lobby exists, and add peer to it
+	if lobby, exists := manager.lobbies[lobbyID]; exists {
+
+		// Add to lobby
+		result = true
+		lobby.Peers = append(lobby.Peers, client)
+
+		// Update client state
+		client.stateMutex.Lock()
+		client.isPeer = true
+		client.lobbyID = lobbyID
+		client.stateMutex.Unlock()
+	}
 
 	// Free lock
-	manager.hostsMutex.Unlock()
+	manager.lobbiesMutex.Unlock()
+
+	return result
+}
+
+func NewHost(lobbyID string, client *Client, manager *Manager, AllowHostReclaim bool, AllowPeersToClaimHost bool, MaxPeers int, Password string) bool {
+	var result = false
+
+	// Get lock
+	manager.lobbiesMutex.Lock()
+
+	// Check if lobby doesn't exist, and create lobby with host as client
+	if _, exists := manager.lobbies[lobbyID]; !exists {
+
+		// Create lobby
+		result = true
+		manager.lobbies[lobbyID] = &Lobby{
+			AllowHostReclaim:      AllowHostReclaim,
+			AllowPeersToClaimHost: AllowPeersToClaimHost,
+			MaxPeers:              MaxPeers,
+			Password:              Password,
+			Locked:                false,
+		}
+		manager.lobbies[lobbyID].Host = client
+
+		// Update client state
+		client.stateMutex.Lock()
+		client.isHost = true
+		client.lobbyID = lobbyID
+		client.stateMutex.Unlock()
+	}
+
+	// Free lock
+	manager.lobbiesMutex.Unlock()
+
+	return result
 }
 
 // NewClient assigns a UUID to a websocket client, and returns a initialized Client struct for use with a manager's AddClient.
@@ -67,15 +127,20 @@ func NewClient(conn *websocket.Conn, manager *Manager) *Client {
 		connection: conn,
 		manager:    manager,
 		id:         client_uuid,
+		name:       "",
+		nameSet:    false,
+		isHost:     false,
+		isPeer:     false,
+		lobbyID:    "",
 	}
 }
 
-func New(name string) *Manager {
+func NewManager(name string) *Manager {
 	manager := &Manager{
-		name:    name,
-		clients: make(map[uuid.UUID]*Client),
-		hosts:   make(map[interface{}]*Client),
-		peers:   make(map[interface{}]*Client),
+		name:        name,
+		clients:     make(map[uuid.UUID]*Client),
+		clientNames: make(map[string]*Client),
+		lobbies:     make(map[string]*Lobby),
 	}
 
 	return manager

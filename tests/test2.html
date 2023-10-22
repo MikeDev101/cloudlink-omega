@@ -9,7 +9,18 @@
 
 			// Define "global" variables
 
-			const configuration = { iceServers: [{ urls: 'stun:stun.mikedev101.cc:19302' }] };
+			const configuration = {
+				iceServers: [
+					{
+						urls: 'stun:stun.mikedev101.cc:19302'
+					},
+					{
+						urls: 'turn:stun.mikedev101.cc:3478',
+						username: 'foobar',
+						credential: 'foobar',
+					}
+				]
+			};
 			var connectButton = null;
 			var disconnectButton = null;
 			var sendButton = null;
@@ -39,6 +50,25 @@
 				sendButton.addEventListener('click', sendMessage, false);
 			}
 
+			// Detect STUN/TURN presence
+
+			async function detectStunOrTurn(e) {
+				// If a srflx candidate was found, notify that the STUN server works!
+				if (e.candidate.type == 'srflx' || e.candidate.candidate.includes('srflx')) {
+					let ip = /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/;
+					let address = e.candidate.address 
+						? e.candidate.address 
+						: e.candidate.candidate.match(ip);
+					console.log('🟢 Your Public IP Address is ' + address);
+					console.log('🟢 The STUN server is reachable!');
+				}
+
+				// If a relay candidate was found, notify that the TURN server works!
+				if (e.candidate.type == 'relay' || e.candidate.candidate.includes('relay')) {
+					console.log('🟢 The TURN server is reachable!');
+				}
+			}
+
 			// Connect the two peers. Normally you look for and connect to a remote
 			// machine here, but we're just connecting two local objects, so we can
 			// bypass that step.
@@ -60,25 +90,40 @@
 
 				// Set up the ICE candidates for the two peers
 
-				localConnection.onicecandidate = e => !e.candidate
-					|| remoteConnection.addIceCandidate(e.candidate)
-						.catch(handleAddCandidateError);
+				localConnection.onicecandidate = e => {
+					if(!e.candidate) return;
+					try {
+						console.log('Remote: Got ice candidate', e.candidate);
+						remoteConnection.addIceCandidate(e.candidate);
+						detectStunOrTurn(e);
+					} catch (error) {
+						handleAddCandidateError(error);
+					}
+				}
 
-				remoteConnection.onicecandidate = e => !e.candidate
-					|| localConnection.addIceCandidate(e.candidate)
-						.catch(handleAddCandidateError);
+				remoteConnection.onicecandidate = e => {
+					if(!e.candidate) return;
+					try {
+						console.log('Local: Got ice candidate', e.candidate);
+						localConnection.addIceCandidate(e.candidate);
+						detectStunOrTurn(e);
+					} catch (error) {
+						handleAddCandidateError(error);
+					}
+				}
 
 				// Now create an offer to connect; this starts the process
 				try {
 					// Step 1: Create my connection's offer
 					const offer = await localConnection.createOffer();
-					console.log('Created local connection offer', offer);
+					console.log('Created local connection offer');
 
 					// Step 2: Set my connection to my offer
 					await localConnection.setLocalDescription(offer);
 					console.log('Updated local connection\'s local description', localConnection.localDescription);
 
 					// Step 3: Transmit my offer to recipient
+					console.log('Local: Somehow magically transmitting my localDescription to my peer, Remote.');
 
 					// Step 4: Setup recipient connection using my offer
 					await remoteConnection.setRemoteDescription(localConnection.localDescription);
@@ -86,13 +131,14 @@
 
 					// Step 5: Recipient generates answer for my offer
 					const answer = await remoteConnection.createAnswer();
-					console.log('Create remote conection answer', answer);
+					console.log('Create remote conection answer');
 
 					// Step 6: Recipient sets their connection to their answer
 					await remoteConnection.setLocalDescription(answer);
 					console.log('Updated remote connection\'s local description', remoteConnection.localDescription);
 
 					// Step 7: Transmit recipient's answer to me
+					console.log('Remote: Somehow magically transmitting my localDescription to my peer, Local.');
 
 					// Step 8: Setup my connection using recipient answer
 					await localConnection.setRemoteDescription(remoteConnection.localDescription);
@@ -130,8 +176,8 @@
 
 			// Handle an error that occurs during addition of ICE candidate.
 
-			function handleAddCandidateError() {
-				console.log("Oh noes! addICECandidate failed!");
+			function handleAddCandidateError(error) {
+				console.log("Oh noes! addICECandidate failed!", error);
 			}
 
 			// Handles clicks on the "Send" button by transmitting
@@ -188,6 +234,7 @@
 			// These are the data messages sent by the sending channel.
 
 			function handleReceiveMessage(event) {
+				console.log('Got new message', event.data);
 				var el = document.createElement("p");
 				var txtNode = document.createTextNode(event.data);
 

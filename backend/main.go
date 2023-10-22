@@ -29,8 +29,22 @@ func main() {
 	})
 
 	// Bind CloudLink server to websocket path
-	app.Get("/ws/:id", websocket.New(func(client *websocket.Conn) {
-		cloudlinkOmega.SessionHandler(client)
+	app.Get("/signaling/:id", websocket.New(func(con *websocket.Conn) {
+		// con.Locals is added to the *websocket.Conn
+		log.Println(con.Locals("allowed"))  // true
+		log.Println(con.Params("id"))       // 123
+		log.Println(con.Query("v"))         // 1.0
+		log.Println(con.Cookies("session")) // ""
+
+		// Create manager if it doesn't exist, otherwise find and load it
+		if mgr, exists := cloudlinkOmega.Managers[con.Params("id")]; exists {
+			log.Printf("Retrieving manager %s", con.Params("id"))
+			cloudlinkOmega.New(mgr, con)
+		} else {
+			log.Printf("Creating manager %s", con.Params("id"))
+			cloudlinkOmega.Managers[con.Params("id")] = cloudlinkOmega.NewManager(con.Params("id"))
+			cloudlinkOmega.New(cloudlinkOmega.Managers[con.Params("id")], con)
+		}
 	}))
 
 	//log.Fatal(app.Listen(":3000"))

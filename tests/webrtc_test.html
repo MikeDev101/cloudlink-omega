@@ -40,8 +40,8 @@
             // Test some TURN server
             {
                 urls: 'turn:stun.mikedev101.cc:3478',
-                username: 'test',
-                credential: 'test123',
+                username: 'foobar',
+                credential: 'foobar',
             },
         ];
 
@@ -50,7 +50,7 @@
 
         // Test the connections
         const pc = new RTCPeerConnection({
-            iceServers
+            iceServers: iceServers
         });
 
         console.log(pc);

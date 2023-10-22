@@ -15,6 +15,16 @@ func JSONDump(message any) []byte {
 
 // MulticastMessage broadcasts a payload to multiple clients.
 func MulticastMessage(clients map[uuid.UUID]*Client, message []byte, ignoreOrigin *Client) {
+	log.Printf("Multicasting message %s to %s", message, JSONDump(clients))
+	for _, client := range clients {
+		// Spawn goroutines to multicast the payload
+		UnicastMessage(client, message, ignoreOrigin)
+	}
+}
+
+// MulticastMessageArray broadcasts a payload to multiple clients.
+func MulticastMessageArray(clients []*Client, message []byte, ignoreOrigin *Client) {
+	log.Printf("Multicasting message %s to %s", message, JSONDump(clients))
 	for _, client := range clients {
 		// Spawn goroutines to multicast the payload
 		UnicastMessage(client, message, ignoreOrigin)
@@ -30,6 +40,8 @@ func UnicastMessage(client *Client, message []byte, ignoreOrigin *Client) {
 		client.connectionMutex.Unlock()
 		return
 	}
+
+	log.Printf("Sending %s to %s", message, client.id)
 
 	// Attempt to send message to client
 	if err := client.connection.WriteMessage(websocket.TextMessage, message); err != nil {

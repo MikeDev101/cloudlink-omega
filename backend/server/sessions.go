@@ -6,7 +6,7 @@ import (
 	"github.com/gofiber/contrib/websocket"
 )
 
-var existingManagers = map[string]*Manager{}
+var Managers = map[string]*Manager{}
 
 func (client *Client) CloseWithMessage(statuscode int, closeMessage string) {
 	client.connection.WriteMessage(
@@ -41,14 +41,87 @@ func SessionCleanup(manager *Manager, client *Client) {
 	// Remove client from manager
 	manager.RemoveClient(client)
 
+	// Manage host state
+	if client.isHost {
+
+		// Get lobby
+		manager.lobbiesMutex.Lock()
+		lobby := manager.lobbies[client.lobbyID]
+		AllowHostReclaim := lobby.AllowHostReclaim
+		AllowPeersToClaimHost := lobby.AllowPeersToClaimHost
+		manager.lobbiesMutex.Unlock()
+
+		// Unset host attribute
+		if (AllowHostReclaim && AllowPeersToClaimHost) || (AllowHostReclaim) {
+			manager.lobbiesMutex.Lock()
+			manager.lobbies[client.lobbyID].Host = nil
+			manager.lobbiesMutex.Unlock()
+		}
+
+		// Gather peers
+		manager.lobbiesMutex.RLock()
+		peers := manager.lobbies[client.lobbyID].Peers
+		manager.lobbiesMutex.RUnlock()
+
+		// Notify peeers they can negotiate a new host on their own
+		if AllowHostReclaim && AllowPeersToClaimHost {
+			MulticastMessageArray(peers, JSONDump(&Packet{
+				Opcode:  Opcodes["HOST_GONE"],
+				Payload: client.lobbyID,
+			}), client)
+
+		} else if AllowHostReclaim { // Make the next entry in the peers slice the host
+
+			// Update the lobby state
+			manager.lobbiesMutex.Lock()
+			lobby := manager.lobbies[client.lobbyID]
+			lobby.Host = lobby.Peers[0]
+			manager.lobbiesMutex.Unlock()
+
+			// Tell peers the server has made this peer the host
+			MulticastMessageArray(peers, JSONDump(&PacketPeer{
+				Opcode: Opcodes["HOST_RECLAIM"],
+				Payload: &PeerDetails{
+					Id:       lobby.Host.id,
+					Username: lobby.Host.name,
+				},
+			}), client)
+
+		} else { // Close the lobby
+
+			// Notify peers the lobby is being deleted
+			MulticastMessageArray(peers, JSONDump(&Packet{
+				Opcode:  Opcodes["LOBBY_CLOSE"],
+				Payload: client.lobbyID,
+			}), client)
+
+			// Delete host and destroy the lobby
+			manager.lobbiesMutex.Lock()
+			delete(manager.lobbies, client.lobbyID)
+			manager.lobbiesMutex.Unlock()
+		}
+
+	} else if client.isPeer { // Manage peer state
+
+		// Get lobby
+		manager.lobbiesMutex.Lock()
+		lobby := manager.lobbies[client.lobbyID]
+
+		// Remove peer
+		lobby.removePeer(client)
+		manager.lobbiesMutex.Unlock()
+
+	}
+
 	// Destroy manager if no clients are connected
 	if len(manager.clients) == 0 {
 		log.Printf("Manager %s is empty", manager.name)
 		manager = &Manager{}
 	}
+
 }
 
-func newSession(manager *Manager, con *websocket.Conn) {
+func New(manager *Manager, con *websocket.Conn) {
 	// Register client
 	client := NewClient(con, manager)
 	manager.AddClient(client)
@@ -61,23 +134,4 @@ func newSession(manager *Manager, con *websocket.Conn) {
 
 	// Begin handling messages throughout the lifespan of the connection
 	client.MessageHandler(manager)
-}
-
-// SessionHandler is the root function that makes CloudLink work. As soon as a client request gets upgraded to the websocket protocol, this function should be called.
-func SessionHandler(con *websocket.Conn) {
-	// con.Locals is added to the *websocket.Conn
-	log.Println(con.Locals("allowed"))  // true
-	log.Println(con.Params("id"))       // 123
-	log.Println(con.Query("v"))         // 1.0
-	log.Println(con.Cookies("session")) // ""
-
-	// Create manager if it doesn't exist, otherwise find and load it
-	if mgr, exists := existingManagers[con.Params("id")]; exists {
-		log.Printf("Retrieving manager %s", con.Params("id"))
-		newSession(mgr, con)
-	} else {
-		log.Printf("Creating manager %s", con.Params("id"))
-		existingManagers[con.Params("id")] = New(con.Params("id"))
-		newSession(existingManagers[con.Params("id")], con)
-	}
 }
