@@ -8,6 +8,11 @@ import (
 
 var Managers = map[string]*Manager{}
 
+func Remove(manager *Manager) {
+	delete(Managers, manager.name)
+	manager = nil
+}
+
 func (client *Client) CloseWithMessage(statuscode int, closeMessage string) {
 	client.connection.WriteMessage(
 		websocket.CloseMessage,
@@ -31,8 +36,6 @@ func (client *Client) MessageHandler(manager *Manager) {
 		if _, message, err = client.connection.ReadMessage(); err != nil {
 			break
 		}
-
-		log.Printf("[%s] Client %s incoming message: %s", manager.name, client.id, message)
 		SignalingOpcode(message, manager, client)
 	}
 }
@@ -45,23 +48,23 @@ func SessionCleanup(manager *Manager, client *Client) {
 	if client.isHost {
 
 		// Get lobby
-		manager.lobbiesMutex.Lock()
+		manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 		lobby := manager.lobbies[client.lobbyID]
 		AllowHostReclaim := lobby.AllowHostReclaim
 		AllowPeersToClaimHost := lobby.AllowPeersToClaimHost
-		manager.lobbiesMutex.Unlock()
+		manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 
 		// Unset host attribute
 		if (AllowHostReclaim && AllowPeersToClaimHost) || (AllowHostReclaim) {
-			manager.lobbiesMutex.Lock()
+			manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 			manager.lobbies[client.lobbyID].Host = nil
-			manager.lobbiesMutex.Unlock()
+			manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 		}
 
 		// Gather peers
-		manager.lobbiesMutex.RLock()
+		manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 		peers := manager.lobbies[client.lobbyID].Peers
-		manager.lobbiesMutex.RUnlock()
+		manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 
 		// Notify peeers they can negotiate a new host on their own
 		if AllowHostReclaim && AllowPeersToClaimHost {
@@ -73,19 +76,43 @@ func SessionCleanup(manager *Manager, client *Client) {
 		} else if AllowHostReclaim { // Make the next entry in the peers slice the host
 
 			// Update the lobby state
-			manager.lobbiesMutex.Lock()
+			manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 			lobby := manager.lobbies[client.lobbyID]
-			lobby.Host = lobby.Peers[0]
-			manager.lobbiesMutex.Unlock()
+			manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 
-			// Tell peers the server has made this peer the host
-			MulticastMessageArray(peers, JSONDump(&PacketPeer{
-				Opcode: Opcodes["HOST_RECLAIM"],
-				Payload: &PeerDetails{
-					Id:       lobby.Host.id,
-					Username: lobby.Host.name,
-				},
-			}), client)
+			// There must be at least one peer to make this work
+			if len(lobby.Peers) == 0 {
+
+				// Destroy the lobby
+				log.Printf("[%s] No peers left in lobby \"%s\", destroying lobby", manager.name, client.lobbyID)
+				manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+				manager.lobbies[client.lobbyID] = nil
+				delete(manager.lobbies, client.lobbyID)
+				manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+
+			} else {
+				manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+				lobby.Host = lobby.Peers[0]
+				manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+
+				// Update client state
+				manager.AcquireAccessLock(&client.stateMutex, "client state")
+				lobby.Host.isPeer = false
+				lobby.Host.isHost = true
+				lobby.Host.lobbyID = client.lobbyID
+				manager.FreeAccessLock(&client.stateMutex, "client state")
+
+				log.Printf("[%s] Made peer %s the new host of lobby \"%s\"", manager.name, lobby.Host.id, client.lobbyID)
+
+				// Tell peers the server has made this peer the host
+				MulticastMessageArray(peers, JSONDump(&PacketPeer{
+					Opcode: Opcodes["HOST_RECLAIM"],
+					Payload: &PeerDetails{
+						Id:       lobby.Host.id,
+						Username: lobby.Host.name,
+					},
+				}), client)
+			}
 
 		} else { // Close the lobby
 
@@ -96,38 +123,36 @@ func SessionCleanup(manager *Manager, client *Client) {
 			}), client)
 
 			// Delete host and destroy the lobby
-			manager.lobbiesMutex.Lock()
+			log.Printf("[%s] Destroying lobby \"%s\"", manager.name, client.lobbyID)
+			manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+			manager.lobbies[client.lobbyID] = nil
 			delete(manager.lobbies, client.lobbyID)
-			manager.lobbiesMutex.Unlock()
+			manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 		}
 
 	} else if client.isPeer { // Manage peer state
 
 		// Get lobby
-		manager.lobbiesMutex.Lock()
+		manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 		lobby := manager.lobbies[client.lobbyID]
 
 		// Remove peer
 		lobby.removePeer(client)
-		manager.lobbiesMutex.Unlock()
-
+		log.Printf("[%s] Removing peer %s from lobby \"%s\"", manager.name, client.id, client.lobbyID)
+		manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 	}
 
 	// Destroy manager if no clients are connected
 	if len(manager.clients) == 0 {
-		log.Printf("Manager %s is empty", manager.name)
-		manager = &Manager{}
+		log.Printf("[%s] No clients connected, destroying manager", manager.name)
+		Remove(manager)
 	}
-
 }
 
 func New(manager *Manager, con *websocket.Conn) {
 	// Register client
 	client := NewClient(con, manager)
 	manager.AddClient(client)
-
-	// Log IP address of client (if enabled)
-	log.Printf("[%s] Client %s IP address: %s", manager.name, client.id, con.RemoteAddr().String())
 
 	// Remove client from manager once the session has ended (and destroy manager if no clients are connected)
 	defer SessionCleanup(manager, client)

@@ -58,17 +58,17 @@ func NotifyPeersOfStateChange(eventType int, lobbyID string, manager *Manager, c
 	case Opcodes["NEW_HOST"]:
 
 		// Get client name and ID
-		client.stateMutex.RLock()
+		manager.AcquireAccessLock(&client.stateMutex, "client names and ids")
 		name := client.name
 		id := client.id
-		client.stateMutex.RUnlock()
+		manager.FreeAccessLock(&client.stateMutex, "client names and ids")
 
 		// Get lobby object
-		manager.lobbiesMutex.RLock()
+		manager.AcquireAccessLock(&manager.lobbiesMutex, "lobby object, password requirement, and maximum peers")
 		lobby := manager.lobbies[lobbyID]
 		password_required := (lobby.Password != "")
 		max_peers := lobby.MaxPeers
-		manager.lobbiesMutex.RUnlock()
+		manager.FreeAccessLock(&manager.lobbiesMutex, "lobby object, password requirement, and maximum peers")
 
 		// Broadcast to peers (but not to the host itself)
 		MulticastMessage(manager.clients, JSONDump(&PacketHost{
@@ -86,15 +86,15 @@ func NotifyPeersOfStateChange(eventType int, lobbyID string, manager *Manager, c
 	case Opcodes["NEW_PEER"]:
 
 		// Get lobby object
-		manager.lobbiesMutex.RLock()
+		manager.AcquireAccessLock(&manager.lobbiesMutex, "lobby object")
 		lobby := manager.lobbies[lobbyID]
-		manager.lobbiesMutex.RUnlock()
+		manager.FreeAccessLock(&manager.lobbiesMutex, "lobby object")
 
 		// Get client name and ID
-		client.stateMutex.RLock()
+		manager.AcquireAccessLock(&client.stateMutex, "client name and id")
 		name := client.name
 		id := client.id
-		client.stateMutex.RUnlock()
+		manager.FreeAccessLock(&client.stateMutex, "client name and id")
 
 		// Notify host
 		UnicastMessage(lobby.Host, JSONDump(&PacketPeer{
@@ -107,13 +107,13 @@ func NotifyPeersOfStateChange(eventType int, lobbyID string, manager *Manager, c
 
 	default:
 		panic(
-			"Unexpected eventType value! Expected NEW_HOST (" + strconv.Itoa(Opcodes["NEW_HOST"]) + ") or NEW_PEER (" + strconv.Itoa(Opcodes["NEW_PEER"]) + "), got " + strconv.Itoa(eventType),
+			"[" + manager.name + "] Unexpected eventType value! Expected NEW_HOST (" + strconv.Itoa(Opcodes["NEW_HOST"]) + ") or NEW_PEER (" + strconv.Itoa(Opcodes["NEW_PEER"]) + "), got " + strconv.Itoa(eventType),
 		)
 	}
 }
 
 func (client *Client) CloseConnectionOnError(opcode int, message string, errorcode int) {
-	log.Printf("Disconnecting client %s due to an error: \"%s\"", client.id, message)
+	log.Printf("[%s] Disconnecting client %s due to an error: \"%s\"", client.manager.name, client.id, message)
 	UnicastMessage(client, JSONDump(&Packet{
 		Opcode:  opcode,
 		Payload: message,
@@ -170,9 +170,9 @@ func (client *Client) assertInt(i interface{}) (int, bool) {
 func (client *Client) assertUsernameSet() bool {
 
 	// Get state
-	client.nameMutex.RLock()
+	client.manager.AcquireAccessLock(&client.nameMutex, "client username state")
 	nameset := client.nameSet
-	client.nameMutex.RUnlock()
+	client.manager.FreeAccessLock(&client.nameMutex, "client username state")
 
 	// Handle username not being set
 	if !nameset {
@@ -184,6 +184,216 @@ func (client *Client) assertUsernameSet() bool {
 		return false
 	}
 	return true
+}
+
+// Handle KEEPALIVE opcodes.
+func opcode_KEEPALIVE(message []byte, packet *Packet, client *Client, manager *Manager) {
+	// Return your ping with my pong
+	UnicastMessage(client, JSONDump(&Packet{
+		Opcode: Opcodes["KEEPALIVE"],
+	}), nil)
+}
+
+// Handle INIT opcodes.
+func opcode_INIT(message []byte, packet *Packet, client *Client, manager *Manager) {
+	// Require a username to be declared
+	if packet.Payload == nil {
+		go client.CloseConnectionOnError(
+			Opcodes["VIOLATION"],
+			"Value error: missing username (payload) value",
+			websocket.CloseUnsupportedData,
+		)
+		return
+	}
+
+	// Assert name (payload) must be string type
+	var username, ok = client.assertString(packet.Payload)
+	if !ok {
+		return
+	}
+
+	// Check if username has already been set, and prevent re-sending this command
+	if client.nameSet {
+		go client.CloseConnectionOnError(
+			Opcodes["VIOLATION"],
+			"State error: username has already been set",
+			websocket.CloseUnsupportedData,
+		)
+		return
+	}
+
+	// Set username
+	manager.AcquireAccessLock(&client.nameMutex, "client username state")
+	client.name = username
+	client.nameSet = true
+	manager.FreeAccessLock(&client.nameMutex, "client username state")
+
+	// Log the server noticing the client saying "hello"
+	log.Printf("[%s] Client %s exists! Hello there, \"%s\"!", manager.name, client.id, username)
+
+	// Update state
+	manager.AcquireAccessLock(&manager.clientNamesMutex, "manager client usernames slice")
+	manager.clientNames[username] = client
+	manager.FreeAccessLock(&manager.clientNamesMutex, "manager client usernames slice")
+
+	// Let the client know the server said "hello" back
+	UnicastMessage(client, JSONDump(&Packet{
+		Opcode:  Opcodes["INIT_OK"],
+		Payload: client.id,
+	}), nil)
+}
+
+// Handle CONFIG_HOST opcodes.
+func opcode_CONFIG_HOST(message []byte, packet *Packet, client *Client, manager *Manager) {
+	// Require a lobby ID to be declared
+	if packet.Payload == nil {
+		go client.CloseConnectionOnError(
+			Opcodes["VIOLATION"],
+			"Value error: missing lobby ID (payload) value",
+			websocket.CloseUnsupportedData,
+		)
+		return
+	}
+
+	// Require a username to be set
+	if ok := client.assertUsernameSet(); !ok {
+		return
+	}
+
+	// Re-marshal the message using HostConfig struct
+	config := &HostConfig{}
+	if err := json.Unmarshal(message, &config); err != nil {
+		go client.CloseConnectionOnError(
+			Opcodes["VIOLATION"],
+			"Argument error: failed to parse payload keyvalue as JSON. Did you read the documentation?",
+			websocket.CloseUnsupportedData,
+		)
+		return
+	}
+
+	// Assert lobbyID (payload) must be string type
+	lobbyID, ok := client.assertString(config.Payload.LobbyID)
+	if !ok {
+		return
+	}
+
+	// Assert configuration
+	AllowHostReclaim, ok := client.assertBool(config.Payload.AllowHostReclaim)
+	if !ok {
+		return
+	}
+	AllowPeersToReclaim, ok := client.assertBool(config.Payload.AllowPeersToReclaim)
+	if !ok {
+		return
+	}
+	MaxPeers, ok := client.assertInt(config.Payload.MaxPeers)
+	if !ok {
+		return
+	}
+	Password, ok := client.assertString(config.Payload.Password)
+	if !ok {
+		return
+	}
+
+	// Add client to hosts storage for manager
+	if ok := NewHost(lobbyID, client, manager, AllowHostReclaim, AllowPeersToReclaim, MaxPeers, Password); !ok {
+		// Tell the client that the lobby already exists (couldn't create lobby)
+		go UnicastMessage(client, JSONDump(&Packet{
+			Opcode: Opcodes["LOBBY_EXISTS"],
+		}), nil)
+		return
+	}
+
+	// Log the server noticing the client becoming a host
+	log.Printf(
+		"[%s] Client %s is a game host, and wants to create lobby \"%s\"\n	Does this lobby allow for host reclaim: %s\n	Does this lobby permit peers to negotiate a new host: %s\n	Maximum number of peers (0 means unlimited): %s\n	Password required: %s",
+		manager.name,
+		client.id,
+		lobbyID,
+		strconv.FormatBool(AllowHostReclaim),
+		strconv.FormatBool(AllowPeersToReclaim),
+		strconv.Itoa(MaxPeers),
+		strconv.FormatBool(Password != ""),
+	)
+
+	// Let the client know the server has made it a game host
+	UnicastMessage(client, JSONDump(&Packet{
+		Opcode: Opcodes["ACK_HOST"],
+	}), nil)
+
+	// Notify all peers that are looking for a host from this lobby ID (NEW_HOST)
+	NotifyPeersOfStateChange(Opcodes["NEW_HOST"], lobbyID, manager, client)
+}
+
+func opcode_CONFIG_PEER(message []byte, packet *Packet, client *Client, manager *Manager) {
+	// Require a lobby ID to be declared
+	if packet.Payload == nil {
+		go client.CloseConnectionOnError(
+			Opcodes["VIOLATION"],
+			"Value error: missing lobby ID (payload) value",
+			websocket.CloseUnsupportedData,
+		)
+		return
+	}
+
+	// Require a username to be set
+	if ok := client.assertUsernameSet(); !ok {
+		return
+	}
+
+	// Assert lobbyID (payload) must be string type
+	var lobbyID, ok = client.assertString(packet.Payload)
+	if !ok {
+		return
+	}
+
+	// Get lobby object
+	manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+	lobby := manager.lobbies[lobbyID]
+	password_required := (lobby.Password != "")
+	// max_peers := lobby.MaxPeers
+	locked := lobby.Locked
+	manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+
+	// Check if a password is required
+	if password_required {
+		// Tell the client that the lobby requires a password
+		go UnicastMessage(client, JSONDump(&Packet{
+			Opcode: Opcodes["PASSWORD_REQUIRED"],
+		}), nil)
+		return
+	}
+
+	// Check if lobby is currently locked
+	if locked {
+		// Tell the client that the lobby is locked
+		go UnicastMessage(client, JSONDump(&Packet{
+			Opcode: Opcodes["LOBBY_LOCKED"],
+		}), nil)
+		return
+	}
+
+	// TODO: check if the lobby is full
+
+	// Add client to peers storage for manager
+	if ok := NewPeer(lobbyID, client, manager); !ok {
+		// Tell the client that the lobby doesn't exist (couldn't add to a lobby)
+		go UnicastMessage(client, JSONDump(&Packet{
+			Opcode: Opcodes["LOBBY_NOTFOUND"],
+		}), nil)
+		return
+	}
+
+	// Log the server noticing the client becoming a peer
+	log.Printf("[%s] Client %s is a game peer, and wants to join lobby \"%s\"", manager.name, client.id, lobbyID)
+
+	// Let the client know the server has made it a game peer
+	UnicastMessage(client, JSONDump(&Packet{
+		Opcode: Opcodes["ACK_PEER"],
+	}), nil)
+
+	// Notify all hosts in that lobby ID that there is a new peer (NEW_PEER)
+	NotifyPeersOfStateChange(Opcodes["NEW_PEER"], lobbyID, manager, client)
 }
 
 // Handles incoming messages from the websocket server
@@ -203,209 +413,16 @@ func SignalingOpcode(message []byte, manager *Manager, client *Client) {
 	switch packet.Opcode {
 
 	case Opcodes["KEEPALIVE"]:
-		// Return your ping with my pong
-		UnicastMessage(client, JSONDump(&Packet{
-			Opcode: Opcodes["KEEPALIVE"],
-		}), nil)
+		opcode_KEEPALIVE(message, &packet, client, manager)
 
 	case Opcodes["INIT"]:
-
-		// Require a username to be declared
-		if packet.Payload == nil {
-			go client.CloseConnectionOnError(
-				Opcodes["VIOLATION"],
-				"Value error: missing username (payload) value",
-				websocket.CloseUnsupportedData,
-			)
-			return
-		}
-
-		// Assert name (payload) must be string type
-		var username, ok = client.assertString(packet.Payload)
-		if !ok {
-			return
-		}
-
-		// Check if username has already been set, and prevent re-sending this command
-		if client.nameSet {
-			go client.CloseConnectionOnError(
-				Opcodes["VIOLATION"],
-				"State error: username has already been set",
-				websocket.CloseUnsupportedData,
-			)
-			return
-		}
-
-		// Set username
-		client.nameMutex.Lock()
-		client.name = username
-		client.nameSet = true
-		client.nameMutex.Unlock()
-
-		// Log the server noticing the client saying "hello"
-		log.Printf("Client %s exists! Hello there, \"%s\"!", client.id, username)
-
-		// Update state
-		manager.clientNamesMutex.Lock()
-		manager.clientNames[username] = client
-		manager.clientNamesMutex.Unlock()
-
-		// Let the client know the server said "hello" back
-		UnicastMessage(client, JSONDump(&Packet{
-			Opcode:  Opcodes["INIT_OK"],
-			Payload: client.id,
-		}), nil)
+		opcode_INIT(message, &packet, client, manager)
 
 	case Opcodes["CONFIG_HOST"]:
-
-		// Require a lobby ID to be declared
-		if packet.Payload == nil {
-			go client.CloseConnectionOnError(
-				Opcodes["VIOLATION"],
-				"Value error: missing lobby ID (payload) value",
-				websocket.CloseUnsupportedData,
-			)
-			return
-		}
-
-		// Require a username to be set
-		if ok := client.assertUsernameSet(); !ok {
-			return
-		}
-
-		// Re-marshal the message using HostConfig struct
-		config := &HostConfig{}
-		if err := json.Unmarshal(message, &config); err != nil {
-			go client.CloseConnectionOnError(
-				Opcodes["VIOLATION"],
-				"Argument error: failed to parse payload keyvalue as JSON. Did you read the documentation?",
-				websocket.CloseUnsupportedData,
-			)
-			return
-		}
-
-		// Assert lobbyID (payload) must be string type
-		lobbyID, ok := client.assertString(config.Payload.LobbyID)
-		if !ok {
-			return
-		}
-
-		// Assert configuration
-		AllowHostReclaim, ok := client.assertBool(config.Payload.AllowHostReclaim)
-		if !ok {
-			return
-		}
-		AllowPeersToReclaim, ok := client.assertBool(config.Payload.AllowPeersToReclaim)
-		if !ok {
-			return
-		}
-		MaxPeers, ok := client.assertInt(config.Payload.MaxPeers)
-		if !ok {
-			return
-		}
-		Password, ok := client.assertString(config.Payload.Password)
-		if !ok {
-			return
-		}
-
-		// Add client to hosts storage for manager
-		if ok := NewHost(lobbyID, client, manager, AllowHostReclaim, AllowPeersToReclaim, MaxPeers, Password); !ok {
-			// Tell the client that the lobby already exists (couldn't create lobby)
-			go UnicastMessage(client, JSONDump(&Packet{
-				Opcode: Opcodes["LOBBY_EXISTS"],
-			}), nil)
-			return
-		}
-
-		// Log the server noticing the client becoming a host
-		log.Printf(
-			"Client %s is a game host, and wants to create lobby \"%s\"\n	Does this lobby allow for host reclaim: %s\n	Does this lobby permit peers to negotiate a new host: %s\n	Maximum number of peers (0 means unlimited): %s\n	Password required: %s",
-			client.id,
-			lobbyID,
-			strconv.FormatBool(AllowHostReclaim),
-			strconv.FormatBool(AllowPeersToReclaim),
-			strconv.Itoa(MaxPeers),
-			strconv.FormatBool(Password != ""),
-		)
-
-		// Let the client know the server has made it a game host
-		UnicastMessage(client, JSONDump(&Packet{
-			Opcode: Opcodes["ACK_HOST"],
-		}), nil)
-
-		// Notify all peers that are looking for a host from this lobby ID (opcode 9 NEW_HOST)
-		NotifyPeersOfStateChange(Opcodes["NEW_HOST"], lobbyID, manager, client)
+		opcode_CONFIG_HOST(message, &packet, client, manager)
 
 	case Opcodes["CONFIG_PEER"]:
-
-		// Require a lobby ID to be declared
-		if packet.Payload == nil {
-			go client.CloseConnectionOnError(
-				Opcodes["VIOLATION"],
-				"Value error: missing lobby ID (payload) value",
-				websocket.CloseUnsupportedData,
-			)
-			return
-		}
-
-		// Require a username to be set
-		if ok := client.assertUsernameSet(); !ok {
-			return
-		}
-
-		// Assert lobbyID (payload) must be string type
-		var lobbyID, ok = client.assertString(packet.Payload)
-		if !ok {
-			return
-		}
-
-		// Get lobby object
-		manager.lobbiesMutex.RLock()
-		lobby := manager.lobbies[lobbyID]
-		password_required := (lobby.Password != "")
-		// max_peers := lobby.MaxPeers
-		locked := lobby.Locked
-		manager.lobbiesMutex.RUnlock()
-
-		// Check if a password is required
-		if password_required {
-			// Tell the client that the lobby requires a password
-			go UnicastMessage(client, JSONDump(&Packet{
-				Opcode: Opcodes["PASSWORD_REQUIRED"],
-			}), nil)
-			return
-		}
-
-		// Check if lobby is currently locked
-		if locked {
-			// Tell the client that the lobby is locked
-			go UnicastMessage(client, JSONDump(&Packet{
-				Opcode: Opcodes["LOBBY_LOCKED"],
-			}), nil)
-			return
-		}
-
-		// TODO: check if the lobby is full
-
-		// Add client to peers storage for manager
-		if ok := NewPeer(lobbyID, client, manager); !ok {
-			// Tell the client that the lobby doesn't exist (couldn't add to a lobby)
-			go UnicastMessage(client, JSONDump(&Packet{
-				Opcode: Opcodes["LOBBY_NOTFOUND"],
-			}), nil)
-			return
-		}
-
-		// Log the server noticing the client becoming a peer
-		log.Printf("Client %s is a game peer, and wants to join lobby %s", client.id, lobbyID)
-
-		// Let the client know the server has made it a game peer
-		UnicastMessage(client, JSONDump(&Packet{
-			Opcode: Opcodes["ACK_PEER"],
-		}), nil)
-
-		// Notify all hosts in that lobby ID that there is a new peer (opcode 8 NEW_PEER)
-		NotifyPeersOfStateChange(Opcodes["NEW_PEER"], lobbyID, manager, client)
+		opcode_CONFIG_PEER(message, &packet, client, manager)
 
 	default:
 		client.CloseConnectionOnError(

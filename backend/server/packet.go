@@ -6,7 +6,7 @@ type HostDetails struct {
 	Id               uuid.UUID `json:"id"`
 	Username         string    `json:"username"`
 	LobbyID          string    `json:"lobby_id"`
-	MaxPeers         int       `json:"max_peers,omitempty"`
+	MaxPeers         int       `json:"max_peers"`
 	PasswordRequired bool      `json:"password_required"`
 }
 
@@ -18,8 +18,8 @@ type PeerDetails struct {
 type Packet struct {
 	Opcode  int         `json:"opcode"`
 	Payload interface{} `json:"payload,omitempty"`
-	Tx      uuid.UUID   `json:"tx,omitempty"`
-	Rx      uuid.UUID   `json:"rx,omitempty"`
+	Tx      string      `json:"tx,omitempty"`
+	Rx      string      `json:"rx,omitempty"`
 }
 
 type PacketHost struct {

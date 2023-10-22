@@ -29,21 +29,23 @@ func main() {
 	})
 
 	// Bind CloudLink server to websocket path
-	app.Get("/signaling/:id", websocket.New(func(con *websocket.Conn) {
-		// con.Locals is added to the *websocket.Conn
-		log.Println(con.Locals("allowed"))  // true
-		log.Println(con.Params("id"))       // 123
-		log.Println(con.Query("v"))         // 1.0
-		log.Println(con.Cookies("session")) // ""
+	app.Get("/signaling/:ugi", websocket.New(func(con *websocket.Conn) {
+		/*
+			// con.Locals is added to the *websocket.Conn
+			log.Println(con.Params("ugi"))      // 123
+			log.Println(con.Query("v"))         // 1.0
+			log.Println(con.Cookies("session")) // ""
+		*/
+
+		ugi := con.Params("ugi")
 
 		// Create manager if it doesn't exist, otherwise find and load it
-		if mgr, exists := cloudlinkOmega.Managers[con.Params("id")]; exists {
-			log.Printf("Retrieving manager %s", con.Params("id"))
+		if mgr, exists := cloudlinkOmega.Managers[ugi]; exists {
 			cloudlinkOmega.New(mgr, con)
 		} else {
-			log.Printf("Creating manager %s", con.Params("id"))
-			cloudlinkOmega.Managers[con.Params("id")] = cloudlinkOmega.NewManager(con.Params("id"))
-			cloudlinkOmega.New(cloudlinkOmega.Managers[con.Params("id")], con)
+			mgr = cloudlinkOmega.NewManager(ugi)
+			cloudlinkOmega.Managers[ugi] = mgr
+			cloudlinkOmega.New(mgr, con)
 		}
 	}))
 
