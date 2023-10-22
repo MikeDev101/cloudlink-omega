@@ -142,7 +142,7 @@ All signaling events are JSON-encoded text frames. No newlines or special format
 
 	10. Send opcode 14 (MAKE_ANSWER) with SDP answer as payload and recipient peer as rx to server.
 		Tell the server we are making an answer to our host.
-		From here, we will continue to wait for 
+		From here, we will continue to wait for the host.
 	
 	11. Server replies with opcode 16 (ACK_CHECK) with originating peer as tx.
 		The server is letting us know that the host would like to check if we're ready to begin communication.
