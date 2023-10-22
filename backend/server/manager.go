@@ -19,7 +19,7 @@ type Manager struct {
 	clientsMutex sync.RWMutex
 
 	// Nested managers
-	managers map[any]*Manager
+	managers map[interface{}]*Manager
 	managersMutex sync.RWMutex
 
 	// Locks states before registering sessions
@@ -48,7 +48,7 @@ func New(name string) *Manager {
 	manager := &Manager{
 		name:            name,
 		clients:         make(map[uuid.UUID]*Client),
-		managers:		 make(map[any]*Manager),
+		managers:		 make(map[interface{}]*Manager),
 	}
 
 	return manager
