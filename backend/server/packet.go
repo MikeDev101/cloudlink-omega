@@ -1,18 +1,16 @@
 package cloudlinkOmega
 
-import "github.com/google/uuid"
-
 type HostDetails struct {
-	Id               uuid.UUID `json:"id"`
-	Username         string    `json:"username"`
-	LobbyID          string    `json:"lobby_id"`
-	MaxPeers         int       `json:"max_peers"`
-	PasswordRequired bool      `json:"password_required"`
+	Id               string `json:"id"`
+	Username         string `json:"username"`
+	LobbyID          string `json:"lobby_id"`
+	MaxPeers         int    `json:"max_peers"`
+	PasswordRequired bool   `json:"password_required"`
 }
 
 type PeerDetails struct {
-	Id       uuid.UUID `json:"id"`
-	Username string    `json:"username"`
+	Id       string `json:"id"`
+	Username string `json:"username"`
 }
 
 type Packet struct {

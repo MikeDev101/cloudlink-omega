@@ -6,6 +6,7 @@ import (
 
 	"github.com/goccy/go-json"
 	"github.com/gofiber/contrib/websocket"
+	"github.com/gofrs/uuid"
 )
 
 // See https://github.com/MikeDev101/cloudlink-omega/blob/main/backend/docs/protocol.md
@@ -49,6 +50,7 @@ var Opcodes = map[string]int{
 	"PASSWORD_REQUIRED": 36,
 	"PASSWORD_ACK":      37,
 	"PASSWORD_FAIL":     38,
+	"PEER_INVALID":      39,
 }
 
 func NotifyPeersOfStateChange(eventType int, lobbyID string, manager *Manager, client *Client) {
@@ -74,7 +76,7 @@ func NotifyPeersOfStateChange(eventType int, lobbyID string, manager *Manager, c
 		MulticastMessage(manager.clients, JSONDump(&PacketHost{
 			Opcode: Opcodes["NEW_HOST"],
 			Payload: &HostDetails{
-				Id:               id,
+				Id:               id.String(),
 				Username:         name,
 				LobbyID:          lobbyID,
 				PasswordRequired: password_required,
@@ -100,7 +102,7 @@ func NotifyPeersOfStateChange(eventType int, lobbyID string, manager *Manager, c
 		UnicastMessage(lobby.Host, JSONDump(&PacketPeer{
 			Opcode: Opcodes["NEW_PEER"],
 			Payload: &PeerDetails{
-				Id:       id,
+				Id:       id.String(),
 				Username: name,
 			},
 		}), nil)
@@ -325,6 +327,7 @@ func opcode_CONFIG_HOST(message []byte, packet *Packet, client *Client, manager 
 	NotifyPeersOfStateChange(Opcodes["NEW_HOST"], lobbyID, manager, client)
 }
 
+// Handle CONFIG_PEER opcodes.
 func opcode_CONFIG_PEER(message []byte, packet *Packet, client *Client, manager *Manager) {
 	// Require a lobby ID to be declared
 	if packet.Payload == nil {
@@ -396,6 +399,147 @@ func opcode_CONFIG_PEER(message []byte, packet *Packet, client *Client, manager 
 	NotifyPeersOfStateChange(Opcodes["NEW_PEER"], lobbyID, manager, client)
 }
 
+// Handle MAKE_OFFER opcodes.
+func opcode_MAKE_OFFER(message []byte, packet *Packet, client *Client, manager *Manager) {
+	// Require a username to be set
+	if ok := client.assertUsernameSet(); !ok {
+		return
+	}
+
+	// Assert recipient (rx) must be string type
+	var rx, ok = client.assertString(packet.Rx)
+	if !ok {
+		return
+	}
+
+	// Parse UUID
+	id, err := uuid.FromString(rx)
+	if err != nil {
+
+		// Tell the client the UUID was invalid and close the connection
+		go client.CloseConnectionOnError(
+			Opcodes["VIOLATION"],
+			"UUID parsing error: peer ID (rx) not a valid UUID format",
+			websocket.CloseUnsupportedData,
+		)
+		return
+	}
+
+	// Find client
+	manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+	var rxclient, exists = manager.clients[id]
+	manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+	if !exists {
+
+		// Tell origin the recipient peer is invalid
+		go UnicastMessage(client, JSONDump(&Packet{
+			Opcode: Opcodes["PEER_INVALID"],
+		}), nil)
+		return
+	}
+
+	// Send offer to peer
+	UnicastMessage(rxclient, JSONDump(&Packet{
+		Opcode:  Opcodes["ANTICIPATE_OFFER"],
+		Payload: packet.Payload,
+		Tx:      client.id.String(),
+	}), nil)
+}
+
+// Handle ACCEPT_OFFER opcodes.
+func opcode_ACCEPT_OFFER(message []byte, packet *Packet, client *Client, manager *Manager) {
+	// Require a username to be set
+	if ok := client.assertUsernameSet(); !ok {
+		return
+	}
+
+	// Assert recipient (rx) must be string type
+	var rx, ok = client.assertString(packet.Rx)
+	if !ok {
+		return
+	}
+
+	// Parse UUID
+	id, err := uuid.FromString(rx)
+	if err != nil {
+
+		// Tell the client the UUID was invalid and close the connection
+		go client.CloseConnectionOnError(
+			Opcodes["VIOLATION"],
+			"UUID parsing error: peer ID (rx) not a valid UUID format",
+			websocket.CloseUnsupportedData,
+		)
+		return
+	}
+
+	// Find client
+	manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+	var rxclient, exists = manager.clients[id]
+	manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+	if !exists {
+
+		// Tell origin the recipient peer is invalid
+		go UnicastMessage(client, JSONDump(&Packet{
+			Opcode: Opcodes["PEER_INVALID"],
+		}), nil)
+		return
+	}
+
+	// Send offer to peer
+	UnicastMessage(rxclient, JSONDump(&Packet{
+		Opcode:  Opcodes["RETURN_OFFER"],
+		Payload: packet.Payload,
+		Tx:      client.id.String(),
+	}), nil)
+}
+
+// Handle MAKE_ANSWER opcodes.
+func opcode_MAKE_ANSWER(message []byte, packet *Packet, client *Client, manager *Manager) {
+	// Require a username to be set
+	if ok := client.assertUsernameSet(); !ok {
+		return
+	}
+
+	// Assert recipient (rx) must be string type
+	var rx, ok = client.assertString(packet.Rx)
+	if !ok {
+		return
+	}
+
+	// Parse UUID
+	id, err := uuid.FromString(rx)
+	if err != nil {
+
+		// Tell the client the UUID was invalid and close the connection
+		go client.CloseConnectionOnError(
+			Opcodes["VIOLATION"],
+			"UUID parsing error: peer ID (rx) not a valid UUID format",
+			websocket.CloseUnsupportedData,
+		)
+		return
+	}
+
+	// Find client
+	manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+	var rxclient, exists = manager.clients[id]
+	manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+	if !exists {
+
+		// Tell origin the recipient peer is invalid
+		go UnicastMessage(client, JSONDump(&Packet{
+			Opcode: Opcodes["PEER_INVALID"],
+		}), nil)
+		return
+	}
+
+	// Send offer to peer
+	UnicastMessage(rxclient, JSONDump(&Packet{
+		Opcode:  Opcodes["ANTICIPATE_ANSWER"],
+		Payload: packet.Payload,
+		Tx:      client.id.String(),
+	}), nil)
+}
+
 // Handles incoming messages from the websocket server
 func SignalingOpcode(message []byte, manager *Manager, client *Client) {
 	// Parse incoming JSON
@@ -424,10 +568,19 @@ func SignalingOpcode(message []byte, manager *Manager, client *Client) {
 	case Opcodes["CONFIG_PEER"]:
 		opcode_CONFIG_PEER(message, &packet, client, manager)
 
+	case Opcodes["MAKE_OFFER"]:
+		opcode_MAKE_OFFER(message, &packet, client, manager)
+
+	case Opcodes["ACCEPT_OFFER"]:
+		opcode_ACCEPT_OFFER(message, &packet, client, manager)
+
+	case Opcodes["MAKE_ANSWER"]:
+		opcode_MAKE_ANSWER(message, &packet, client, manager)
+
 	default:
 		client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
-			("Unrecognized message opcode value: " + strconv.Itoa(packet.Opcode)),
+			"Unrecognized opcode / Not a command opcode!",
 			websocket.CloseUnsupportedData,
 		)
 	}

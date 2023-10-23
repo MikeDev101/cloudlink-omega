@@ -5,7 +5,7 @@ import (
 
 	"github.com/goccy/go-json"
 	"github.com/gofiber/contrib/websocket"
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid"
 )
 
 func JSONDump(message any) []byte {

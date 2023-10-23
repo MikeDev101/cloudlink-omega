@@ -108,7 +108,7 @@ func SessionCleanup(manager *Manager, client *Client) {
 				MulticastMessageArray(peers, JSONDump(&PacketPeer{
 					Opcode: Opcodes["HOST_RECLAIM"],
 					Payload: &PeerDetails{
-						Id:       lobby.Host.id,
+						Id:       lobby.Host.id.String(),
 						Username: lobby.Host.name,
 					},
 				}), client)

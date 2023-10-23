@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/gofiber/contrib/websocket"
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid"
 )
 
 type Client struct {

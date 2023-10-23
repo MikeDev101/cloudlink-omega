@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/gofiber/contrib/websocket"
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid"
 )
 
 var ServerVersion string = "0.1.0"
@@ -37,6 +37,9 @@ type Manager struct {
 
 	// Locks states before registering sessions
 	sync.RWMutex
+
+	// UUID generator
+	uuidGen uuid.Gen
 }
 
 // Verbosely log RWMutex lock requests
@@ -147,7 +150,7 @@ func NewClient(conn *websocket.Conn, manager *Manager) *Client {
 
 	// Create client UUID
 	manager.AcquireAccessLock(&manager.clientsMutex, "UUID generator")
-	client_uuid := uuid.New()
+	client_uuid, _ := manager.uuidGen.NewV7()
 	manager.FreeAccessLock(&manager.clientsMutex, "UUID generator")
 
 	return &Client{
@@ -168,6 +171,7 @@ func NewManager(name string) *Manager {
 		clients:     make(map[uuid.UUID]*Client),
 		clientNames: make(map[string]*Client),
 		lobbies:     make(map[string]*Lobby),
+		uuidGen:     *uuid.NewGen(),
 	}
 
 	return manager
