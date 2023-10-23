@@ -110,6 +110,38 @@ This message is sent to a host when a peer wants to join their game.
 | 39 | PEER_INVALID | server > client | You specified a peer ID that was invalid (Did you specify a UUID as rx argument?) |
 
 ## Connection lifespan of a host
+```json
+// Start of lifespan
+
+// TX - INIT
+{"opcode":2,"payload":"{MY USERNAME}"}
+
+// RX - INIT_OK
+{"opcode":3,"payload":"{MY UUID}"}
+
+// TX - CONFIG_HOST
+{"opcode": 4, "payload": {"lobby_id": "{LOBBY NAME}", "allow_host_reclaim": false, "allow_peers_to_claim_host": false, "max_peers": 0,"password" :""}}
+
+// RX - ACK_HOST
+{"opcode":6}
+
+// RX - NEW_PEER
+{"opcode":9,"payload":{"id":"{PEER UUID}","username":"Banana"}}
+
+// TX - MAKE_OFFER
+{"opcode":10,"payload":"{MY SDP OFFER}","rx":"{PEER UUID}"}
+
+// RX - RETURN_OFFER
+{"opcode":13,"payload":"{PEER SDP OFFER}","tx":"{PEER UUID}"}
+
+// TX - MAKE_ANSWER
+{"opcode":14,"payload":"{MY SDP ANSWER}","rx":"{PEER UUID}"}
+
+// RX - ANTICIPATE_ANSWER
+{"opcode":15,"payload":"{PEER SDP ANSWER}","tx":"{PEER UUID}"}
+
+// WebRTC connection established!
+```
 
 1. Connect to websocket.
 
@@ -156,6 +188,38 @@ This message is sent to a host when a peer wants to join their game.
 	At this point, let the games begin!
 
 ## Connection lifespan of a peer
+```json
+// Start of lifespan
+
+// TX - INIT
+{"opcode":2,"payload":"{MY USERNAME}"}
+
+// RX - INIT_OK
+{"opcode":3,"payload":"{MY UUID}"}
+
+// RX - NEW_HOST
+{"opcode":8,"payload":{"id":"{HOST UUID}","username":"{HOST USERNAME}","lobby_id":"{LOBBY NAME}","max_peers":0,"password_required":false}}
+
+// TX - CONFIG_PEER
+{"opcode":5,"payload":"public_lobby"}
+
+// RX - ACK_PEER
+{"opcode":7}
+
+// RX - ANTICIPATE_OFFER
+{"opcode":11,"payload":"{HOST SDP OFFER}","tx":"{HOST UUID}"}
+
+// TX - ACCEPT_OFFER
+{"opcode":12,"payload":"{MY SDP OFFER}","rx": "{HOST UUID}"}
+
+// RX - ANTICIPATE_ANSWER
+{"opcode":15,"payload":"{HOST SDP ANSWER}","tx":"{HOST UUID}"}
+
+// TX - MAKE_ANSWER
+{"opcode":14,"payload":"{MY SDP ANSWER}","rx": "{HOST UUID}"}
+
+// WebRTC connection established!
+```
 
 1. Connect to websocket.
 
