@@ -110,7 +110,7 @@ This message is sent to a host when a peer wants to join their game.
 | 39 | PEER_INVALID | server > client | You specified a peer ID that was invalid (Did you specify a UUID as rx argument?) |
 
 ## Connection lifespan of a host
-```json
+```js
 // Start of lifespan
 
 // TX - INIT
@@ -120,7 +120,7 @@ This message is sent to a host when a peer wants to join their game.
 {"opcode":3,"payload":"{MY UUID}"}
 
 // TX - CONFIG_HOST
-{"opcode": 4, "payload": {"lobby_id": "{LOBBY NAME}", "allow_host_reclaim": false, "allow_peers_to_claim_host": false, "max_peers": 0,"password" :""}}
+{"opcode": 4, "payload": {"lobby_id": "{LOBBY NAME}", "allow_host_reclaim": bool, "allow_peers_to_claim_host": bool, "max_peers": int,"password": string}}
 
 // RX - ACK_HOST
 {"opcode":6}
@@ -188,7 +188,7 @@ This message is sent to a host when a peer wants to join their game.
 	At this point, let the games begin!
 
 ## Connection lifespan of a peer
-```json
+```js
 // Start of lifespan
 
 // TX - INIT
@@ -198,10 +198,10 @@ This message is sent to a host when a peer wants to join their game.
 {"opcode":3,"payload":"{MY UUID}"}
 
 // RX - NEW_HOST
-{"opcode":8,"payload":{"id":"{HOST UUID}","username":"{HOST USERNAME}","lobby_id":"{LOBBY NAME}","max_peers":0,"password_required":false}}
+{"opcode":8,"payload":{"id":"{HOST UUID}","username":"{HOST USERNAME}","lobby_id":"{LOBBY NAME}","max_peers":int,"password_required":bool}}
 
 // TX - CONFIG_PEER
-{"opcode":5,"payload":"public_lobby"}
+{"opcode":5,"payload":"{LOBBY NAME}"}
 
 // RX - ACK_PEER
 {"opcode":7}
