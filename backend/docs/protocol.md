@@ -126,7 +126,7 @@ This message is sent to a host when a peer wants to join their game.
 {"opcode":6}
 
 // RX - NEW_PEER
-{"opcode":9,"payload":{"id":"{PEER UUID}","username":"Banana"}}
+{"opcode":9,"payload":{"id":"{PEER UUID}","username":"{PEER USERNAME}"}}
 
 // TX - MAKE_OFFER
 {"opcode":10,"payload":"{MY SDP OFFER}","rx":"{PEER UUID}"}
