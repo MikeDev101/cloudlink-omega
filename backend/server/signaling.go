@@ -109,13 +109,13 @@ func NotifyPeersOfStateChange(eventType int, lobbyID string, manager *Manager, c
 
 	default:
 		panic(
-			"[" + manager.name + "] Unexpected eventType value! Expected NEW_HOST (" + strconv.Itoa(Opcodes["NEW_HOST"]) + ") or NEW_PEER (" + strconv.Itoa(Opcodes["NEW_PEER"]) + "), got " + strconv.Itoa(eventType),
+			"[" + manager.Name + "] Unexpected eventType value! Expected NEW_HOST (" + strconv.Itoa(Opcodes["NEW_HOST"]) + ") or NEW_PEER (" + strconv.Itoa(Opcodes["NEW_PEER"]) + "), got " + strconv.Itoa(eventType),
 		)
 	}
 }
 
 func (client *Client) CloseConnectionOnError(opcode int, message string, errorcode int) {
-	log.Printf("[%s] Disconnecting client %s due to an error: \"%s\"", client.manager.name, client.id, message)
+	log.Printf("[%s] Disconnecting client %s due to an error: \"%s\"", client.manager.Name, client.id, message)
 	UnicastMessage(client, JSONDump(&Packet{
 		Opcode:  opcode,
 		Payload: message,
@@ -231,7 +231,7 @@ func opcode_INIT(message []byte, packet *Packet, client *Client, manager *Manage
 	manager.FreeAccessLock(&client.nameMutex, "client username state")
 
 	// Log the server noticing the client saying "hello"
-	log.Printf("[%s] Client %s exists! Hello there, \"%s\"!", manager.name, client.id, username)
+	log.Printf("[%s] Client %s exists! Hello there, \"%s\"!", manager.Name, client.id, username)
 
 	// Update state
 	manager.AcquireAccessLock(&manager.clientNamesMutex, "manager client usernames slice")
@@ -309,7 +309,7 @@ func opcode_CONFIG_HOST(message []byte, packet *Packet, client *Client, manager 
 	// Log the server noticing the client becoming a host
 	log.Printf(
 		"[%s] Client %s is a game host, and wants to create lobby \"%s\"\n	Does this lobby allow for host reclaim: %s\n	Does this lobby permit peers to negotiate a new host: %s\n	Maximum number of peers (0 means unlimited): %s\n	Password required: %s",
-		manager.name,
+		manager.Name,
 		client.id,
 		lobbyID,
 		strconv.FormatBool(AllowHostReclaim),
@@ -344,8 +344,24 @@ func opcode_CONFIG_PEER(message []byte, packet *Packet, client *Client, manager 
 		return
 	}
 
+	// Re-marshal the message using PeerConfig struct
+	config := &PeerConfig{}
+	if err := json.Unmarshal(message, &config); err != nil {
+		go client.CloseConnectionOnError(
+			Opcodes["VIOLATION"],
+			"Argument error: failed to parse payload keyvalue as JSON. Did you read the documentation?",
+			websocket.CloseUnsupportedData,
+		)
+		return
+	}
+
 	// Assert lobbyID (payload) must be string type
-	var lobbyID, ok = client.assertString(packet.Payload)
+	lobbyID, ok := client.assertString(config.Payload.LobbyID)
+	if !ok {
+		return
+	}
+
+	Password, ok := client.assertString(config.Payload.Password)
 	if !ok {
 		return
 	}
@@ -353,19 +369,12 @@ func opcode_CONFIG_PEER(message []byte, packet *Packet, client *Client, manager 
 	// Get lobby object
 	manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 	lobby := manager.lobbies[lobbyID]
+	lobby_password := lobby.Password
 	password_required := (lobby.Password != "")
-	// max_peers := lobby.MaxPeers
+	max_peers := lobby.MaxPeers
+	peer_count := len(lobby.Peers)
 	locked := lobby.Locked
 	manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
-
-	// Check if a password is required
-	if password_required {
-		// Tell the client that the lobby requires a password
-		go UnicastMessage(client, JSONDump(&Packet{
-			Opcode: Opcodes["PASSWORD_REQUIRED"],
-		}), nil)
-		return
-	}
 
 	// Check if lobby is currently locked
 	if locked {
@@ -376,7 +385,36 @@ func opcode_CONFIG_PEER(message []byte, packet *Packet, client *Client, manager 
 		return
 	}
 
-	// TODO: check if the lobby is full
+	// Check if the lobby is full
+	if (max_peers != 0) && (max_peers == peer_count) {
+		// Tell the client that the lobby is full
+		go UnicastMessage(client, JSONDump(&Packet{
+			Opcode: Opcodes["LOBBY_FULL"],
+		}), nil)
+		return
+	}
+
+	// Check if a password is required
+	if password_required {
+		if Password == "" {
+			// Tell the client that the lobby requires a password
+			go UnicastMessage(client, JSONDump(&Packet{
+				Opcode: Opcodes["PASSWORD_REQUIRED"],
+			}), nil)
+			return
+		} else if Password != lobby_password {
+			// Tell the client that the lobby password is incorrect
+			go UnicastMessage(client, JSONDump(&Packet{
+				Opcode: Opcodes["PASSWORD_FAIL"],
+			}), nil)
+			return
+		} else {
+			// Tell the client the password was accepted
+			UnicastMessage(client, JSONDump(&Packet{
+				Opcode: Opcodes["PASSWORD_ACK"],
+			}), nil)
+		}
+	}
 
 	// Add client to peers storage for manager
 	if ok := NewPeer(lobbyID, client, manager); !ok {
@@ -388,7 +426,7 @@ func opcode_CONFIG_PEER(message []byte, packet *Packet, client *Client, manager 
 	}
 
 	// Log the server noticing the client becoming a peer
-	log.Printf("[%s] Client %s is a game peer, and wants to join lobby \"%s\"", manager.name, client.id, lobbyID)
+	log.Printf("[%s] Client %s is a game peer, and wants to join lobby \"%s\"", manager.Name, client.id, lobbyID)
 
 	// Let the client know the server has made it a game peer
 	UnicastMessage(client, JSONDump(&Packet{

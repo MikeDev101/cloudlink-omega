@@ -22,8 +22,8 @@ type Lobby struct {
 }
 
 type Manager struct {
-	// Friendly name for manager
-	name string
+	// Friendly Name for manager
+	Name string
 
 	// Registered client sessions
 	clients          map[uuid.UUID]*Client
@@ -45,22 +45,22 @@ type Manager struct {
 // Verbosely log RWMutex lock requests
 func (manager *Manager) AcquireAccessLock(lock *sync.RWMutex, something string) {
 	if VerboselyLogLocks {
-		log.Printf("[%s] Acquiring lock to access %s...", manager.name, something)
+		log.Printf("[%s] Acquiring lock to access %s...", manager.Name, something)
 	}
 	lock.Lock()
 	if VerboselyLogLocks {
-		log.Printf("[%s] Acquired lock to access %s!", manager.name, something)
+		log.Printf("[%s] Acquired lock to access %s!", manager.Name, something)
 	}
 }
 
 // Verbosely log RWMutex unlock requests
 func (manager *Manager) FreeAccessLock(lock *sync.RWMutex, something string) {
 	if VerboselyLogLocks {
-		log.Printf("[%s] Freeing lock to access %s...", manager.name, something)
+		log.Printf("[%s] Freeing lock to access %s...", manager.Name, something)
 	}
 	lock.Unlock()
 	if VerboselyLogLocks {
-		log.Printf("[%s] Freed lock to access %s!", manager.name, something)
+		log.Printf("[%s] Freed lock to access %s!", manager.Name, something)
 	}
 }
 
@@ -79,7 +79,7 @@ func (lobby *Lobby) removePeer(target *Client) {
 }
 
 func NewPeer(lobbyID string, client *Client, manager *Manager) bool {
-	log.Printf("[%s] Checking for lobby \"%s\" existence", manager.name, lobbyID)
+	log.Printf("[%s] Checking for lobby \"%s\" existence", manager.Name, lobbyID)
 
 	// Get lock
 	manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
@@ -90,7 +90,7 @@ func NewPeer(lobbyID string, client *Client, manager *Manager) bool {
 	if exists {
 
 		// Add to lobby
-		log.Printf("[%s] Lobby \"%s\" exists, adding client %s", manager.name, lobbyID, client.id)
+		log.Printf("[%s] Lobby \"%s\" exists, adding client %s", manager.Name, lobbyID, client.id)
 		manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 		lobby.Peers = append(lobby.Peers, client)
 		manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
@@ -101,16 +101,16 @@ func NewPeer(lobbyID string, client *Client, manager *Manager) bool {
 		client.lobbyID = lobbyID
 		manager.FreeAccessLock(&client.stateMutex, "client state")
 
-		log.Printf("[%s] Added client %s to lobby \"%s\"", manager.name, client.id, lobbyID)
+		log.Printf("[%s] Added client %s to lobby \"%s\"", manager.Name, client.id, lobbyID)
 		return true
 	}
 
-	log.Printf("[%s] Lobby \"%s\" does not exist", manager.name, lobbyID)
+	log.Printf("[%s] Lobby \"%s\" does not exist", manager.Name, lobbyID)
 	return false
 }
 
 func NewHost(lobbyID string, client *Client, manager *Manager, AllowHostReclaim bool, AllowPeersToClaimHost bool, MaxPeers int, Password string) bool {
-	log.Printf("[%s] Checking for lobby \"%s\" existence", manager.name, lobbyID)
+	log.Printf("[%s] Checking for lobby \"%s\" existence", manager.Name, lobbyID)
 
 	// Check if lobby exists
 	manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
@@ -121,7 +121,7 @@ func NewHost(lobbyID string, client *Client, manager *Manager, AllowHostReclaim 
 	if !exists {
 
 		// Create lobby
-		log.Printf("[%s] Lobby \"%s\" does not exist, creating it now", manager.name, lobbyID)
+		log.Printf("[%s] Lobby \"%s\" does not exist, creating it now", manager.Name, lobbyID)
 		manager.lobbies[lobbyID] = &Lobby{
 			AllowHostReclaim:      AllowHostReclaim,
 			AllowPeersToClaimHost: AllowPeersToClaimHost,
@@ -137,11 +137,11 @@ func NewHost(lobbyID string, client *Client, manager *Manager, AllowHostReclaim 
 		client.lobbyID = lobbyID
 		manager.FreeAccessLock(&client.stateMutex, "client state")
 
-		log.Printf("[%s] Lobby \"%s\" created", manager.name, lobbyID)
+		log.Printf("[%s] Lobby \"%s\" created", manager.Name, lobbyID)
 		return true
 	}
 
-	log.Printf("[%s] Lobby \"%s\" already exists", manager.name, lobbyID)
+	log.Printf("[%s] Lobby \"%s\" already exists", manager.Name, lobbyID)
 	return false
 }
 
@@ -167,7 +167,7 @@ func NewClient(conn *websocket.Conn, manager *Manager) *Client {
 
 func NewManager(name string) *Manager {
 	manager := &Manager{
-		name:        name,
+		Name:        name,
 		clients:     make(map[uuid.UUID]*Client),
 		clientNames: make(map[string]*Client),
 		lobbies:     make(map[string]*Lobby),
@@ -183,7 +183,7 @@ func (manager *Manager) AddClient(client *Client) {
 	// Add client
 	manager.clients[client.id] = client
 
-	log.Printf("[%s] Client %s connected", manager.name, client.id)
+	log.Printf("[%s] Client %s connected", manager.Name, client.id)
 
 	manager.FreeAccessLock(&manager.clientsMutex, "manager clients state")
 }
@@ -194,7 +194,7 @@ func (manager *Manager) RemoveClient(client *Client) {
 	// Remove client from manager's clients map
 	delete(manager.clients, client.id)
 
-	log.Printf("[%s] Client %s disconnected", manager.name, client.id)
+	log.Printf("[%s] Client %s disconnected", manager.Name, client.id)
 
 	manager.FreeAccessLock(&manager.clientsMutex, "manager clients state")
 }

@@ -41,9 +41,11 @@ func main() {
 
 		// Create manager if it doesn't exist, otherwise find and load it
 		if mgr, exists := cloudlinkOmega.Managers[ugi]; exists {
+			log.Printf("[%s] Adding new client to existing manager", mgr.Name)
 			cloudlinkOmega.New(mgr, con)
 		} else {
 			mgr = cloudlinkOmega.NewManager(ugi)
+			log.Printf("[%s] Adding new client to new manager", mgr.Name)
 			cloudlinkOmega.Managers[ugi] = mgr
 			cloudlinkOmega.New(mgr, con)
 		}

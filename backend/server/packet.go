@@ -40,3 +40,11 @@ type HostConfig struct {
 		Password            string `json:"password"`
 	} `json:"payload"`
 }
+
+type PeerConfig struct {
+	Opcode  int `json:"opcode"`
+	Payload struct {
+		LobbyID  string `json:"lobby_id"`
+		Password string `json:"password"`
+	} `json:"payload"`
+}

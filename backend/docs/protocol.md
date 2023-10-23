@@ -36,6 +36,18 @@ Send this message to the server to create a game host.
 }
 ```
 
+### `CONFIG_PEER` format
+Send this message to the server to join a game host.
+```js
+{
+	opcode: 5, // CONFIG_PEER opcode 
+	payload: {
+		lobby_id: string, // Name of your lobby you want to join
+		password: string, // Optional. Server will respond with PASSWORD_REQUIRED if blank and the room is configured for a password.
+	},
+}
+```
+
 ### `NEW_HOST` format
 This message is sent to peers when a new host is created.
 
@@ -201,7 +213,10 @@ This message is sent to a host when a peer wants to join their game.
 {"opcode":8,"payload":{"id":"{HOST UUID}","username":"{HOST USERNAME}","lobby_id":"{LOBBY NAME}","max_peers":int,"password_required":bool}}
 
 // TX - CONFIG_PEER
-{"opcode":5,"payload":"{LOBBY NAME}"}
+{"opcode":5,"payload":{"lobby_id": "{LOBBY NAME}", "password": string}}
+
+// RX - PASSWORD_ACK (if password is enabled and accepted)
+{"opcode":37}
 
 // RX - ACK_PEER
 {"opcode":7}

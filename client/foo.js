@@ -1,140 +1,100 @@
 (function (vm) {
-    const configuration = { iceServers: [{ urls: 'stun:stun.mikedev101.cc:3478' }] } // Self-hosted coturn server
-
-    // Create map to manage multiple peers
-    const peerConnections = new Map();
-    const dataChannels = new Map();
-
-    // Create placeholder webSocket object
-    let webSocket;
-
-    // Declare function to handle peers
-    async function createPeerConnection(peerID) {
-        console.log('Creating peer connection object:', peerID);
-        const peerConnection = new RTCPeerConnection(configuration);
-        peerConnections.set(peerID, peerConnection);
-
-        console.log('Creating peer connection data channel:', peerID);
-        const dataChannel = peerConnection.createDataChannel('myDataChannel');
-
-        // Set up event handlers for the data channel
-        dataChannel.onopen = async() => {
-            console.log(`Data channel for ${peerID} is open`);
-        };
-
-        dataChannel.onmessage = async(event) => {
-            var payload = JSON.parse(event.data);
-            console.log(`Received data from ${peerId}: ${payload.message}`);
-        };
-
-        dataChannel.onclose = async() => {
-            console.log(`Data channel for ${peerId} is closed`);
-        };
-    };
-
-    // Send offer to a peer
-    async function sendOffer(peerId) {
-        if (!webSocket) return;
-        const peerConnection = peerConnections.get(peerId);
-        if (!peerConnection) {
-            console.warn('Can\'t send offer: peer connection object not found:', peerID);
-            return;
-        }
-        peerConnection.createOffer()
-            .then((offer) => peerConnection.setLocalDescription(offer))
-            .then(() => {
-                console.log('Creating offer:', peerConnection.localDescription);
-                webSocket.send(JSON.stringify({ type: 'offer', sdp: peerConnection.localDescription, senderPeerId: peerId }));
-            });
-    }
-
-    // Setup data channel communication for peer
-    async function sendData(peerId, message) {
-        const dataChannel = dataChannels.get(peerId);
-        if (dataChannel && dataChannel.readyState === 'open') {
-            var payload = {
-                peerID: peerID,
-                message: message
+    class WebRTCChatClient {
+        constructor(username, ugi) {
+            this.configuration = { // Self-hosted coturn server
+                iceServers: [
+                    { urls: 'stun:stun.mikedev101.cc:3478' },
+                    { urls: 'turn:stun.mikedev101.cc:3478', username: 'foobar', credentials: 'foobar' }
+                ]
             }
-            console.log('Sending data channel message: "', payload, '" to peer', peerID);
-            await dataChannel.send(JSON.stringify(payload));
-        }
-    }
+            this.ugi = encodeURI(ugi);
+            this.username = username;
+            this.sessionId = null;
+            this.websocket = null;
+            this.peers = [];
+            this.peerConnections = new Map();
+            this.dataChannels = new Map();
 
-    // Handle events from signaling backend
-    async function handleSignalingEvent(message) {
-        if (message.type === 'offer') {
-            const senderPeerId = message.senderPeerId; // Include the sender's peer ID in your WebSocket message
-            console.log('Got offer from ', senderPeerId, ', creating peer connection');
-            await createPeerConnection(senderPeerId);
+            // Signaling server URL
+            this.signalingServerURL = `wss://i5-imac.local:3000/signaling/${ugi}?v=0`;
 
-            const peerConnection = peerConnections.get(senderPeerId);
-            peerConnection.setRemoteDescription(new RTCSessionDescription(message.sdp)) // { type: 'offer', sdp: message.sdp }
-            .then(() => peerConnection.createAnswer())
-            .then((answer) => peerConnection.setLocalDescription(answer))
-            .then(() => {
-                console.log('Sending answer to peer', senderPeerId, ':', peerConnection.localDescription);
-                webSocket.send(JSON.stringify({ type: 'answer', sdp: peerConnection.localDescription, receiverPeerId: senderPeerId }));
-            });
-            
-        } else if (message.type === 'answer') {
-            const receiverPeerId = message.receiverPeerId; // Include the receiver's peer ID in your WebSocket message
-            console.log('Got answer from ', receiverPeerId, ', updating peer connection');
-            const peerConnection = peerConnections.get(receiverPeerId);
-            peerConnection.setRemoteDescription(new RTCSessionDescription(message.sdp)); // { type: 'answer', sdp: message.sdp }
-        }
-    }
-
-    async function declarePeer(myPeerID) {
-        if (!webSocket) return; // Socket object must be created
-        if (webSocket.readyState != 1) return; // Socket must be connected
-        
-        // Create my WebRTC peer connection
-        console.log('Creating my WebRTC peer');
-        const peerConnection = new RTCPeerConnection(configuration);
-        peerConnections.set(myPeerID, peerConnection);
-
-        // Create my data channel
-        console.log('Creating my WebRTC data channel');
-        const dataChannel = peerConnection.createDataChannel('myDataChannel');
-
-        // Set up event handlers for my data channel
-        dataChannel.onopen = async () => {
-            console.log(`My data channel is open`);
-        };
-        dataChannel.onmessage = async (event) => {
-            var payload = JSON.parse(event.data);
-            console.log(`Received data from ${payload.peerID}: ${payload.message}`);
-        };
-        dataChannel.onclose = async () => {
-            console.log(`My data channel is closed`);
-        };
-
-        console.log('Declaring myself as peer: ', myPeerID);
-        sendOffer(String(myPeerID));
-    }
-
-    // Begin communications
-    async function initalizeSession(UGI) {
-        // Connect to signaling backend
-        const backend = `wss://i5-imac.local:3000/ws/${UGI}?v=1.0`;
-        console.log('Connecting to signaling backend: ', backend);
-        webSocket = new WebSocket(backend);
-
-        // Handle peer offers
-        webSocket.onmessage = async(event) => {
-            const message = JSON.parse(event.data);
-            console.log('Got new signaling message: ', message);
-            await handleSignalingEvent(message);
+            // Initialize WebSocket connection
+            this.initializeWebSocket();
         }
 
-        // Begin sending offer upon connection
-        webSocket.onopen = async(event) => {
-            console.log('Connected to signaling backend');
+        initializeWebSocket() {
+            console.log(`Connecting to signaller: ${this.signalingServerURL}`);
+            this.websocket = new WebSocket(this.signalingServerURL);
+
+            this.websocket.onopen = () => {
+                console.log(`Connected to signaller!`);
+                this.websocket.send(JSON.stringify({ opcode: 2, payload: this.username }));
+            };
+
+            this.websocket.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                this.handleSignalingMessage(message);
+            };
+        }
+
+        isConnected() {
+            return this.websocket && this.websocket.readyState === WebSocket.OPEN;
+        }
+
+        getUsernames() {
+            return this.peers;
+        }
+
+        acceptConnectionRequest(peerId) {
+            if (this.peers.includes(peerId)) {
+                // Handle the request to accept connection
+                // Send the necessary signaling message
+                // Update the peerConnections and dataChannels maps
+            }
+        }
+
+        rejectConnectionRequest(peerId) {
+            if (this.peers.includes(peerId)) {
+                // Handle the request to reject connection
+                // Send the necessary signaling message
+                // Remove the peer from the peers list
+            }
+        }
+
+        sendDataToPeer(peerId, message) {
+            if (this.dataChannels.has(peerId)) {
+                // Send the message to the specified peer using the data channel
+                // Handle any errors
+            }
+        }
+
+        shutdownLobby() {
+            // Send a signaling command to shut down the lobby
+            // Handle the closure of the WebSocket connection
+        }
+
+        transferLobbyOwnership(peerId) {
+            // Send a signaling command to transfer ownership of the lobby to a peer
+        }
+
+        initializeAsHost(lobbyId, password, allowHostsReclaim, allowPeersClaimHost, maxPeers) {
+            // Send a signaling command to initialize as a host
+        }
+
+        initializeAsPeer(lobbyId) {
+            // Send a signaling command to initialize as a peer
+        }
+
+        handleSignalingMessage(message) {
+            // Handle various signaling messages and implement the negotiation process
         }
     }
 
     class myExtension {
+        constructor() {
+            this.client;
+        }
+
         getInfo() {
             return {
                 id: 'extensionID',
@@ -147,24 +107,56 @@
                 color3: "#ff7473",
                 blocks: [
                     {
+                        opcode: 'is_signalling_connected',
+                        blockType: 'Boolean',
+                        text: 'Connected to signalling backend?',
+                    },
+                    {
+                        opcode: 'get_usernames',
+                        blockType: 'reporter',
+                        text: 'Usernames',
+                    },
+                    {
                         opcode: 'initalize',
                         blockType: 'command',
-                        text: 'Connect to game [UGI]',
+                        text: 'Connect to game [UGI] as username [USERNAME]',
                         arguments: {
                             UGI: {
                                 type: 'string',
                                 defaultValue: 'DemoUGI',
                             },
+                            USERNAME: {
+                                type: 'string',
+                                defaultValue: 'Apple',
+                            },
                         }
                     },
                     {
-                        opcode: 'createOffer',
+                        opcode: 'host',
                         blockType: 'command',
-                        text: 'Create offer as name [PEER]',
+                        text: 'Host lobby [LOBBY] Maximum peers: (0 = unlimited): [PEERS] Password: [PASSWORD] Allow new hosts? [ALLOWHOSTSRECLAIM] Allow peers to claim host? [ALLOWPEERSTOCLAIMHOST]',
                         arguments: {
-                            PEER: {
+                            LOBBY: {
                                 type: 'string',
-                                defaultValue: 'Banana',
+                                defaultValue: 'DemoLobby',
+                            },
+                            PEERS: {
+                                type: 'number',
+                                defaultValue: 0,
+                            },
+                            PASSWORD: {
+                                type: 'string',
+                                defaultValue: 'Make me blank to allow anyone to join!',
+                            },
+                            ALLOWHOSTSRECLAIM: {
+                                type: 'Boolean',
+                                // menu: 'boolMenu',
+                                defaultValue: false,
+                            },
+                            ALLOWPEERSTOCLAIMHOST: {
+                                type: 'Boolean',
+                                // menu: 'boolMenu',
+                                defaultValue: false,
                             },
                         }
                     },
@@ -183,20 +175,33 @@
                             },
                         }
                     },
-                ]
+                ],
+                menus: {
+                    boolMenu: {
+                        items: ["Yes", "No"],
+                    },
+                }
             };
         }
 
-        initalize(args) {
-            initalizeSession(encodeURI(String(args.UGI)));
+        is_signalling_connected() {
+            if (!this.client) return false;
+            return this.client.isConnected();
         }
 
-        createOffer(args) {
-            declarePeer(String(args.PEER));
+        get_usernames() {
+            if (!this.client) return JSON.stringify([]);
+            if (!this.client.isConnected()) return JSON.stringify([]);
+            return JSON.stringify(this.client.getUsernames());
         }
+
+        initalize(args) {
+            this.client = new WebRTCChatClient(args.USERNAME, args.UGI);
+        }
+
+        host(args) {}
 
         send(args) {
-            sendData(String(args.PEER), String(args.DATA));
         }
     };
     vm.extensionManager._registerInternalExtension(new myExtension());

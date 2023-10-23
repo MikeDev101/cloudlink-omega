@@ -9,7 +9,7 @@ import (
 var Managers = map[string]*Manager{}
 
 func Remove(manager *Manager) {
-	delete(Managers, manager.name)
+	delete(Managers, manager.Name)
 	manager = nil
 }
 
@@ -84,7 +84,7 @@ func SessionCleanup(manager *Manager, client *Client) {
 			if len(lobby.Peers) == 0 {
 
 				// Destroy the lobby
-				log.Printf("[%s] No peers left in lobby \"%s\", destroying lobby", manager.name, client.lobbyID)
+				log.Printf("[%s] No peers left in lobby \"%s\", destroying lobby", manager.Name, client.lobbyID)
 				manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 				manager.lobbies[client.lobbyID] = nil
 				delete(manager.lobbies, client.lobbyID)
@@ -102,7 +102,7 @@ func SessionCleanup(manager *Manager, client *Client) {
 				lobby.Host.lobbyID = client.lobbyID
 				manager.FreeAccessLock(&client.stateMutex, "client state")
 
-				log.Printf("[%s] Made peer %s the new host of lobby \"%s\"", manager.name, lobby.Host.id, client.lobbyID)
+				log.Printf("[%s] Made peer %s the new host of lobby \"%s\"", manager.Name, lobby.Host.id, client.lobbyID)
 
 				// Tell peers the server has made this peer the host
 				MulticastMessageArray(peers, JSONDump(&PacketPeer{
@@ -123,7 +123,7 @@ func SessionCleanup(manager *Manager, client *Client) {
 			}), client)
 
 			// Delete host and destroy the lobby
-			log.Printf("[%s] Destroying lobby \"%s\"", manager.name, client.lobbyID)
+			log.Printf("[%s] Destroying lobby \"%s\"", manager.Name, client.lobbyID)
 			manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 			manager.lobbies[client.lobbyID] = nil
 			delete(manager.lobbies, client.lobbyID)
@@ -138,13 +138,13 @@ func SessionCleanup(manager *Manager, client *Client) {
 
 		// Remove peer
 		lobby.removePeer(client)
-		log.Printf("[%s] Removing peer %s from lobby \"%s\"", manager.name, client.id, client.lobbyID)
+		log.Printf("[%s] Removing peer %s from lobby \"%s\"", manager.Name, client.id, client.lobbyID)
 		manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 	}
 
 	// Destroy manager if no clients are connected
 	if len(manager.clients) == 0 {
-		log.Printf("[%s] No clients connected, destroying manager", manager.name)
+		log.Printf("[%s] No clients connected, destroying manager", manager.Name)
 		Remove(manager)
 	}
 }

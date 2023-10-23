@@ -41,7 +41,7 @@ func UnicastMessage(client *Client, message []byte, ignoreOrigin *Client) {
 
 	// Attempt to send message to client
 	if err := client.connection.WriteMessage(websocket.TextMessage, message); err != nil {
-		log.Printf("[%s] Client %s TX error: %s", client.manager.name, client.id, err)
+		log.Printf("[%s] Client %s TX error: %s", client.manager.Name, client.id, err)
 	}
 	client.connectionMutex.Unlock()
 }
