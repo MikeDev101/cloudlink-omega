@@ -40,10 +40,7 @@ func (client *Client) MessageHandler(manager *Manager) {
 	}
 }
 
-func SessionCleanup(manager *Manager, client *Client) {
-	// Remove client from manager
-	manager.RemoveClient(client)
-
+func (manager *Manager) AbandonLobbies(client *Client) {
 	// Manage host state
 	if client.isHost {
 
@@ -105,10 +102,11 @@ func SessionCleanup(manager *Manager, client *Client) {
 				log.Printf("[%s] Made peer %s the new host of lobby \"%s\"", manager.Name, lobby.Host.id, client.lobbyID)
 
 				// Tell peers the server has made this peer the host
-				MulticastMessageArray(peers, JSONDump(&PacketPeer{
+				MulticastMessageArray(peers, JSONDump(&ReclaimHostConfig{
 					Opcode: Opcodes["HOST_RECLAIM"],
-					Payload: &PeerDetails{
+					Payload: &ReclaimHost{
 						Id:       lobby.Host.id.String(),
+						LobbyID:  client.lobbyID,
 						Username: lobby.Host.name,
 					},
 				}), client)
@@ -141,6 +139,14 @@ func SessionCleanup(manager *Manager, client *Client) {
 		log.Printf("[%s] Removing peer %s from lobby \"%s\"", manager.Name, client.id, client.lobbyID)
 		manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 	}
+}
+
+func SessionCleanup(manager *Manager, client *Client) {
+	// Handle removing the client from any lobbies
+	manager.AbandonLobbies(client)
+
+	// Remove client from manager
+	manager.RemoveClient(client)
 
 	// Destroy manager if no clients are connected
 	if len(manager.clients) == 0 {

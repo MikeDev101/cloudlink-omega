@@ -41,6 +41,17 @@ type HostConfig struct {
 	} `json:"payload"`
 }
 
+type ReclaimHost struct {
+	LobbyID  string `json:"lobby_id"`
+	Id       string `json:"id"`
+	Username string `json:"username"`
+}
+
+type ReclaimHostConfig struct {
+	Opcode  int          `json:"opcode"`
+	Payload *ReclaimHost `json:"payload"`
+}
+
 type PeerConfig struct {
 	Opcode  int `json:"opcode"`
 	Payload struct {
