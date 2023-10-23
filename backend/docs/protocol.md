@@ -75,6 +75,20 @@ This message is sent to a host when a peer wants to join their game.
 }
 ```
 
+### `HOST_RECLAIM` format
+This message is sent when the server has made a peer the new host of a lobby.
+
+```js
+{
+	opcode: 28, // HOST_RECLAIM opcode 
+	payload: {
+		id: string // UUID of the peer (use this for tx argument)
+		lobby_id: string // The lobby ID the peer has been made the host on
+		username: string // username of the host
+	},
+}
+```
+
 ### Opcodes
 `opcode` is an integer that represents one of the following message states:
 
