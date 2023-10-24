@@ -3,53 +3,48 @@
         constructor(username, ugi) {
             // Define the opcodes used for signalling
             this.signalingOpcodes = {
-                VIOLATION:         0,
-                KEEPALIVE:         1,
-                INIT:              2,
-                INIT_OK:           3,
-                CONFIG_HOST:       4,
-                CONFIG_PEER:       5,
-                ACK_HOST:          6,
-                ACK_PEER:          7,
-                NEW_HOST:          8,
-                NEW_PEER:          9,
-                MAKE_OFFER:        10,
-                ANTICIPATE_OFFER:  11,
-                ACCEPT_OFFER:      12,
-                RETURN_OFFER:      13,
-                MAKE_ANSWER:       14,
-                ANTICIPATE_ANSWER: 15,
-                ACK_CHECK:         16,
-                ACK_READY:         17,
-                ACK_ABORT:         18,
-                SHUTDOWN:          19,
-                SHUTDOWN_ACK:      20,
-                LOBBY_EXISTS:      21,
-                LOBBY_NOTFOUND:    22,
-                LOBBY_FULL:        23,
-                LOBBY_LOCKED:      24,
-                LOBBY_CLOSE:       25,
-                HOST_GONE:         26,
-                PEER_GONE:         27,
-                HOST_RECLAIM:      28,
-                CLAIM_HOST:        29,
-                TRANSFER_HOST:     30,
-                ABANDON:           31,
-                LOCK:              32,
-                UNLOCK:            33,
-                SIZE:              34,
-                KICK:              35,
-                PASSWORD_REQUIRED: 36,
-                PASSWORD_ACK:      37,
-                PASSWORD_FAIL:     38,
-                PEER_INVALID:      39,
+                VIOLATION: 0,
+                KEEPALIVE: 1,
+                INIT: 2,
+                INIT_OK: 3,
+                CONFIG_HOST: 4,
+                CONFIG_PEER: 5,
+                ACK_HOST: 6,
+                ACK_PEER: 7,
+                NEW_HOST: 8,
+                NEW_PEER: 9,
+                MAKE_OFFER: 10,
+                MAKE_ANSWER: 11,
+                ICE: 12,
+                ABORT_OFFER: 13,
+                ABORT_ANSWER: 14,
+                SHUTDOWN: 15,
+                LOBBY_EXISTS: 16,
+                LOBBY_NOTFOUND: 17,
+                LOBBY_FULL: 18,
+                LOBBY_LOCKED: 19,
+                LOBBY_CLOSE: 20,
+                HOST_GONE: 21,
+                PEER_GONE: 22,
+                HOST_RECLAIM: 23,
+                CLAIM_HOST: 24,
+                TRANSFER_HOST: 25,
+                ABANDON: 26,
+                LOCK: 27,
+                UNLOCK: 28,
+                SIZE: 29,
+                KICK: 30,
+                PASSWORD_REQUIRED: 31,
+                PASSWORD_ACK: 32,
+                PASSWORD_FAIL: 33,
+                PEER_INVALID: 34,
             }
 
             this.configuration = {
                 iceServers: [
                     // Omega STUN/TURN servers
                     { urls: 'stun:stun.mikedev101.cc:3478' },
-                    { urls: 'turn:stun.mikedev101.cc:3478', username: 'foobar', credentials: 'foobar' },
+                    { urls: 'turn:stun.mikedev101.cc:3478', username: 'foobar', credential: 'foobar' },
 
                     // Google STUN servers in case Omega STUN server is unavailable/overloaded
                     { urls: 'stun:stun.l.google.com:19302' },
@@ -63,11 +58,12 @@
             this.username = username;
             this.sessionId = null;
             this.websocket = null;
-            this.peers = [];
-            this.peerConnections = new Map();
-            this.dataChannels = new Map();
-            this.initialOffer = null;
+            this.peers = {};
+            this.peerConnections = {};
+            this.peerIceCandidates = {};
+            this.dataChannels = {};
             this.mode = null;
+            this.hostIceSent = false;
             this.lobbyID = null;
 
             // Signaling server URL
@@ -77,85 +73,84 @@
             this.initializeWebSocket();
         }
 
-        initializeWebRTCPeer(uuid) {
-            console.log(`Creating WebRTC peer object with UUID ${uuid}`);
+        async initializePeer(uuid) {
+            // Create RTCPeerConnection and store it in our class
             const pc = new RTCPeerConnection(this.configuration);
-            this.peerConnections.set(uuid, pc);
+            this.peerConnections[uuid] = pc;
+            this.peerIceCandidates[uuid] = [];
+            console.log(`Created WebRTC peer with UUID ${uuid}: `, this.peerConnections[uuid]);
 
             pc.onicecandidate = (e) => {
                 if (!e.candidate) return;
-                console.log(e.candidate);
-    
-                // If a srflx candidate was found, notify that the STUN server works!
-                if (e.candidate.type == 'srflx' || e.candidate.candidate.includes('srflx')) {
-                    let ip = /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/;
-                    let address = e.candidate.address 
-                        ? e.candidate.address 
-                        : e.candidate.candidate.match(ip);
-                    console.log(`Public IP Address is ${address}`);
-                    console.log('STUN server is reachable!');
-                }
-    
-                // If a relay candidate was found, notify that the TURN server works!
-                if (e.candidate.type == 'relay' || e.candidate.candidate.includes('relay')) {
-                    console.log('TURN server is reachable!');
+                console.log(`${uuid} Got an ICE candidate:`, e.candidate);
+                this.peerIceCandidates[uuid].push(e.candidate);
+            }
+
+            pc.onicegatheringstatechange = (e) => {
+                switch (e.target.iceGatheringState) {
+                    case "gathering":
+                        console.log(`Peer ${uuid} ICE is now gathering candidates...`);
+                        break;
+                    case "complete":
+                        console.log(`Peer ${uuid} ICE has finished gathering candidates!`)
+                        break;
                 }
             }
 
             // handle error
             pc.onicecandidateerror = (e) => {
-                console.error(`${uuid} ICE error: `, e);
+                console.error(`Peer ${uuid} ICE error: `, e);
+            }
+
+            // Handle data channel events
+            pc.ondatachannel = (event) => {
+                this.initializeDataChannel(event.channel);
+            }
+
+            return pc
+        }
+
+        initializeDataChannel(chan) {
+            const channelName = chan.label;
+
+            chan.onopen = (e) => {
+                console.log(`${channelName} opened!`);
+            }
+
+            chan.onmessage = (e) => {
+                console.log(`${channelName} new message from ${e.origin}: ${e.data}`);
+            }
+
+            chan.onerror = (e) => {
+                console.log(`${channelName} error!`, e.error);
+            }
+
+            chan.onclosing  = (e) => {
+                console.log(`${channelName} closing...`);
+            }
+
+            chan.onclose  = (e) => {
+                console.log(`${channelName} closed!`);
             }
         }
 
-        initializeWebRTCChannel(uuid, channelName, isOrdered) {
-            const chanLabel = `${uuid}.${channelName}`
-            if (!this.peerConnections.has(uuid)) {
-                console.error(`Couldn\'t create WebRTC data channel: The WebRTC peer object with UUID ${uuid} was not found.`);
-                return;
-            };
-
-            const pc = this.peerConnections.get(uuid);
-            if (!this.dataChannels.has(channelName)) {
-                console.warn(`Couldn\'t create WebRTC data channel for UUID ${uuid}: The channel ${channelName} already exists.`);
-                return;
-            };
-
-            console.log(`Creating data channel \"${chanLabel}\" using WebRTC Peer object: `, pc);
-
-            const chan = pc.createDataChannel(channelName, {ordered: isOrdered});
-
-            this.dataChannels.set(chanLabel, chan);
-            console.log(`Created data channel object \"${chanLabel}\": `, this.dataChannels.get(chanLabel));
-        }
-
-        createWebRTCOffer(uuid) {
-            if (!this.peerConnections.has(uuid)) {
-                console.error(`Couldn\'t create WebRTC offer: The WebRTC peer object with UUID ${uuid} was not found.`);
-                return;
-            };
-
-            const pc = this.peerConnections.get(uuid);
-            const offer = pc.createOffer();
-            pc.setLocalDescription(offer);
-
-            console.log(`Created WebRTC peer object \"${uuid}\" offer: `, offer);
-
-            return offer;
-        };
-
         initializeWebSocket() {
-            console.log(`Connecting to signaller: ${this.signalingServerURL}`);
+            console.log(`Connecting to signalling backend: ${this.signalingServerURL}`);
             this.websocket = new WebSocket(this.signalingServerURL);
 
             this.websocket.onopen = () => {
-                console.log(`Connected to signaller!`);
+                console.log(`Connected to signalling backend!`);
                 this.sendSignallingMessage(this.signalingOpcodes.INIT, this.username);
             };
 
             this.websocket.onmessage = (event) => {
                 this.handleSignalingMessage(JSON.parse(event.data));
             };
+
+            this.websocket.onclose = () => {
+                console.log(`Signaling backend disconnected!`);
+                this.websocket = null;
+            }
         }
 
         isSignallingConnected() {
@@ -167,7 +162,7 @@
         }
 
         acceptConnectionRequest(peerID) {
-            if (this.peers.includes(peerID)) {
+            if (peerID in this.peers) {
                 // Handle the request to accept connection
                 // Send the necessary signaling message
                 // Update the peerConnections and dataChannels maps
@@ -175,15 +170,15 @@
         }
 
         rejectConnectionRequest(peerID) {
-            if (this.peers.includes(peerID)) {
+            if (peerID in this.peers) {
                 // Handle the request to reject connection
                 // Send the necessary signaling message
                 // Remove the peer from the peers list
             }
         }
 
-        sendDataToPeer(peerID, message) {
-            if (this.dataChannels.has(peerID)) {
+        sendDataToPeer(peerID, channelName, message) {
+            if (`${peerID}.${channelName}` in this.dataChannels) {
                 // Send the message to the specified peer using the data channel
                 // Handle any errors
             }
@@ -204,7 +199,6 @@
             this.lobbyID = lobbyID;
 
             // Send a signaling command to initialize as a host
-            console.log(`Attempting to initialize client as a host of lobby \"${lobbyID}\"`);
             this.sendSignallingMessage(
                 this.signalingOpcodes.CONFIG_HOST,
                 {
@@ -217,13 +211,39 @@
             );
         }
 
+        waitForIceToFinishGathering(uuid) {
+            console.log(`Waiting for RTC peer ${uuid} ICE to finish gathering...`);
+            const pc = this.peerConnections[uuid];
+            return new Promise((resolve) => {
+                const checkInterval = setInterval(() => {
+                    if (pc.iceGatheringState == "complete") {
+                        console.log(`RTC peer ${uuid} ICE has finish gathering!`);
+                        clearInterval(checkInterval);
+                        resolve();
+                    }
+                }, 100);
+            })
+        }
+
+        async generateIce(uuid) {
+            // Wait for ICE to finish gathering
+            await this.waitForIceToFinishGathering(uuid);
+
+            // Read ICE values
+            const ice = this.peerIceCandidates[uuid];
+            let temp = [];
+            ice.forEach(e => {
+                temp.push(e.toJSON());
+            });
+            return temp;
+        }
+
         initializeAsPeer(lobbyID, password) {
             if (this.mode == "host") return;
             this.mode = "peer";
             this.lobbyID = lobbyID;
 
             // Send a signaling command to initialize as a peer
-            console.log(`Attempting to initialize client as a peer of lobby \"${lobbyID}\"`);
             this.sendSignallingMessage(
                 this.signalingOpcodes.CONFIG_PEER,
                 {
@@ -233,47 +253,158 @@
             );
         }
 
-        sendSignallingMessage(opcode, payload, rx){
+        sendSignallingMessage(opcode, payload, rx) {
             if (!(this.websocket && this.websocket.readyState === WebSocket.OPEN)) return;
             const message = {
                 opcode: opcode,
                 payload: payload,
                 rx: rx
             }
-            console.log(`Sending signaling message: `, message);
             this.websocket.send(JSON.stringify(message));
         }
 
-        handleSignalingMessage(message) {
-            console.log(`Got signaling message: `, message);
+        async handleSignalingMessage(message) {
+            // Placeholders
+            let uuid, offer, answer, pc, ice = null;
 
             // Handle various signaling messages and implement the negotiation process
             switch (message.opcode) {
                 // Get session UUID for our client
                 case this.signalingOpcodes.INIT_OK:
                     this.uuid = message.payload;
-                    console.log(`Got session UUID: ${this.uuid}`);
+                    console.log(`Session UUID: ${this.uuid}`);
                     break;
-                
+
                 // Handle host mode request
                 case this.signalingOpcodes.ACK_HOST:
-                    console.log('Server has made us a host');
+                    console.log('Initialized as a host!');
                     break;
-                
+
                 // Handle peer mode request
                 case this.signalingOpcodes.ACK_PEER:
-                    console.log('Server has made us a peer');
+                    console.log('Initialized as a peer!');
                     break;
-                
+
                 // Handle host reclaim alerts
                 case this.signalingOpcodes.HOST_RECLAIM:
                     if (this.uuid == message.payload.id) {
                         this.mode = "host";
-                        console.log('Server has made us the new host');
-                    } else {
-                        console.log('Server has made someone else the new host');
+                        console.log(`You are now the host of lobby \"${message.payload.lobby_id}\".`);
                     }
+
+                // Handle peer join requests
+                case this.signalingOpcodes.NEW_PEER:
+                    if (this.mode != "host") return;
+                    uuid = message.payload.id;
+
+                    // Create peer connection object
+                    pc = await this.initializePeer(uuid);
+
+                    // Generate data channel
+                    this.dataChannels[`${uuid}.default`] = pc.createDataChannel(`${uuid}.default`, { ordered: true });
+
+                    // Generate offer
+                    offer = await pc.createOffer();
+
+                    // Set local description
+                    await pc.setLocalDescription(offer);
+
+                    // Send offer back to peer
+                    this.sendSignallingMessage(
+                        this.signalingOpcodes.MAKE_OFFER,
+                        pc.localDescription,
+                        uuid
+                    )
+                    break;
+
+                // Handle host offer
+                case this.signalingOpcodes.MAKE_OFFER:
+                    if (this.mode != "peer") return;
+                    uuid = message.tx;
+                    offer = new RTCSessionDescription(message.payload);
+
+                    // Create peer object
+                    pc = await this.initializePeer(uuid);
+
+                    // Generate data channel
+                    this.dataChannels[`${uuid}.default`] = pc.createDataChannel(`${uuid}.default`, { ordered: true });
+
+                    // Configure remote description
+                    await pc.setRemoteDescription(offer);
+
+                    // Generate answer
+                    offer = await pc.createAnswer();
+
+                    // Set local description
+                    await pc.setLocalDescription(answer);
+
+                    // Send answer to host
+                    this.sendSignallingMessage(
+                        this.signalingOpcodes.MAKE_ANSWER,
+                        pc.localDescription,
+                        uuid
+                    )
+                    break;
+
+                // Handle peer answer
+                case this.signalingOpcodes.MAKE_ANSWER:
+                    if (this.mode != "host") return;
+                    uuid = message.tx;
+                    answer = new RTCSessionDescription(message.payload)
+
+                    // Get peer object
+                    pc = this.peerConnections[uuid];
+
+                    // Set local description
+                    await pc.setRemoteDescription(answer);
+
+                    // Send host ICE back to peer
+                    ice = await this.generateIce(uuid);
+
+                    console.log('Sending ' + ice + ` to peer ${uuid}`);
+                    this.sendSignallingMessage(
+                        this.signalingOpcodes.ICE,
+                        ice,
+                        uuid
+                    )
+                    break;
+                        
+                // Handle host ICE offers
+                case this.signalingOpcodes.ICE:
+                    if (this.mode == "host") {
+                        uuid = message.tx;
+
+                        // Get peer object
+                        pc = this.peerConnections[uuid];
+
+                        // Set ICE candidates from peer
+                        message.payload.forEach(candidate => {
+                            pc.addIceCandidate(new RTCIceCandidate(candidate));
+                        });
+
+                        // Prevent sending ICE data if already sent
+                        if (this.hostIceSent) return;
+                        this.hostIceSent = true;
+
+                        // Send peer ICE back to peer
+                        ice = await this.generateIce(uuid);
+                        this.sendSignallingMessage(
+                            this.signalingOpcodes.ICE,
+                            ice,
+                            uuid
+                        )
                     
+                    } else if (this.mode == "peer") {
+                        uuid = message.tx;
+
+                        // Get peer object
+                        pc = this.peerConnections[uuid];
+
+                        // Set ICE candidates from host
+                        message.payload.forEach(candidate => {
+                            pc.addIceCandidate(new RTCIceCandidate(candidate));
+                        });
+                    }
                     break;
             }
         }
@@ -287,8 +418,8 @@
 
         getInfo() {
             return {
-                id: 'extensionID',
-                name: 'extensionName',
+                id: 'cloudlinkOmega',
+                name: 'CloudLink Omega',
                 // docsURI: # TODO: website
                 // blockIconURI: TODO: add SVG
                 // menuIconURI: TODO: add SVG
@@ -313,7 +444,7 @@
                         arguments: {
                             PEER: {
                                 type: 'string',
-                                defaultValue: '',
+                                defaultValue: 'Banana',
                             }
                         }
                     },
@@ -335,7 +466,7 @@
                     {
                         opcode: 'host',
                         blockType: 'command',
-                        text: 'Host lobby [LOBBY] Maximum peers: (0 = unlimited): [PEERS] Password: [PASSWORD] Settings: [CLAIMCONFIG]',
+                        text: 'Host lobby [LOBBY] Maximum peers: (0 = unlimited): [PEERS] Password (set blank for no password): [PASSWORD] Settings: [CLAIMCONFIG]',
                         arguments: {
                             LOBBY: {
                                 type: 'string',
@@ -347,7 +478,7 @@
                             },
                             PASSWORD: {
                                 type: 'string',
-                                defaultValue: 'Set me blank to allow anyone to join!',
+                                defaultValue: '',
                             },
                             CLAIMCONFIG: {
                                 type: 'number',
@@ -410,6 +541,7 @@
 
         is_signalling_connected() {
             if (!this.client) return false;
+            if (!this.client.websocket) return false;
             return this.client.isSignallingConnected();
         }
 
@@ -427,7 +559,7 @@
         }
 
         initalize(args) {
-            if (this.client) return;
+            if (!this.client.websocket) return false;
             this.client = new WebRTCChatClient(args.USERNAME, args.UGI);
         }
 
@@ -439,7 +571,7 @@
             let allowPeersClaimHost;
 
             switch (args.CLAIMCONFIG) {
-                case "1": 
+                case "1":
                     allowHostsReclaim = false;
                     allowPeersClaimHost = false;
                     break;
@@ -447,7 +579,7 @@
                     allowHostsReclaim = true;
                     allowPeersClaimHost = false;
                     break;
-                case "3": 
+                case "3":
                     allowHostsReclaim = true;
                     allowPeersClaimHost = true;
                     break;
