@@ -92,204 +92,43 @@ This message is sent when the server has made a peer the new host of a lobby.
 ### Opcodes
 `opcode` is an integer that represents one of the following message states:
 
-| opcode | name | path | description |
+| opcode | path | name | description |
 |--------|------|------|-------------|
-| 0 | VIOLATION | server > client | Client, you did something that violated this protocol, I am kicking you. |
-| 1 | KEEPALIVE | client <> server | Ping/pong eachother. |
-| 2 | INIT | client > server | Hello signalier, I am a client. Here is my usernname. |
-| 3 | INIT_OK | server > client | Hello client, I am your signaler. |
-| 4 | CONFIG_HOST | client > server | Signaler, make me a game host. Here is the name of the lobby I'd like to make and it's configuration settings. | 
-| 5 | CONFIG_PEER | client > server | Signaler, make me a game peer. Please let me know if there is a host for this lobby. |
-| 6 | ACK_HOST | server > client | Client, I have made you a host and I'll notify peers of your existence. |
-| 7 | ACK_PEER | server > client | Client, I'll let you know when a host creates a game for you. |
-| 8 | NEW_HOST | server > client | Hello peer, here is a host. |
-| 9 | NEW_PEER | server > client | Hello host, here is a peer. |
-| 10 | MAKE_OFFER | client > server | Signaler, can you send this offer to this peer? |
-| 11 | ANTICIPATE_OFFER | server > client | Hello client, here is an offer from your game host |
-| 12 | ACCEPT_OFFER | client > server | Signaler, send my offer back to the host. I'd like to make this connection. |
-| 13 | RETURN_OFFER | server > client | Host, here is a offer from a peer. |
-| 14 | MAKE_ANSWER | client > server | Signaler, send my answer to this peer. |
-| 15 | ANTICIPATE_ANSWER | server > client | Hello client, here is an answer from your peer. |
-| 16 | ACK_CHECK | client > server > client | Hey client, are you ready to begin communication? |
-| 17 | ACK_READY | client > server > client | Hey client, I'm ready. Let's talk over our RTC channels! |
-| 18 | ACK_ABORT | client > server > client | Hey client, I'm not ready. Ignore me! |
-| 19 | SHUTDOWN | client > server | Signaler, I'm going away. |
-| 20 | SHUTDOWN_ACK | server > clients | Clients, this peer is going away. |
-| 21 | LOBBY_EXISTS | server > client | You may not create this lobby because it already exists. |
-| 22 | LOBBY_NOTFOUND | server > client | You may not join this lobby because it does not exist. |
-| 23 | LOBBY_FULL | server > client | You may not join this lobby because it is full. |
-| 24 | LOBBY_LOCKED | server > client | You may not join this lobby because the host has locked the lobby. |
-| 25 | LOBBY_CLOSE | server > clients | Hello peers, the host has shut down this lobby. |
-| 26 | HOST_GONE | server > clients | Hello peers, the host has left. I'm going to decide a host, or decide a new host amongst yourselves. |
-| 27 | PEER_GONE | server > client | Hello host and peer(s), one of your peers have left. |
-| 28 | HOST_RECLAIM | server > client | Clients, I have decided to make this peer your new host. |
-| 29 | CLAIM_HOST | client > server | Signaler, please make me the new host. |
-| 30 | TRANSFER_HOST | client > server | Signaler, please make this peer the host. |
-| 31 | ABANDON | client > server | Signaler, please close this lobby. |
-| 32 | LOCK | client > server | Signaler, please prevent any new peers from joining this lobby. |
-| 33 | UNLOCK | client > server | Signaler, pleas allow peers to join my lobby again. |
-| 34 | SIZE | client > server | Signaler, please change the maximum number of peers in the lobby. |
-| 35 | KICK | client > server | Signaler, please kick this peer from my lobby. |
-| 36 | PASSWORD_REQUIRED | server > client | Peer, to join this lobby you need to enter a password. |
-| 37 | PASSWORD_ACK | client > server | Signaler, here is the password. Please let me in. |
-| 38 | PASSWORD_FAIL | server > client | Client, that password was incorrect. |
-| 39 | PEER_INVALID | server > client | You specified a peer ID that was invalid (Did you specify a UUID as rx argument?) |
+| 0 | server -> client | VIOLATION | Protocol exception. |
+| 1 | server <> client | KEEPALIVE | Ping/pong. |
+| 2 | server <- client | INIT | Requests a Session UUID by offering a username. |
+| 3 | server -> client | INIT_OK | Returns a Session UUID from the server. |
+| 4 | server <- client | CONFIG_HOST | Tells the server to make the client a game host, and create a lobby. |
+| 5 | server <- client | CONFIG_PEER | Tells the server to make the client a game peer, and join a lobby. |
+| 6 | server -> client | ACK_HOST | Server replied to host request, made the client a host, and has created a lobby. |
+| 7 | server -> client | ACK_PEER | Server replied to peer request, made the client a peer, and has sent a join request to the lobby host. |
+| 8 | server -> client | NEW_HOST | Server notifies a peer that a new lobby was created. |
+| 9 | server -> client | NEW_PEER | Server notifies a host that a peer wants to join the lobby. |
+| 10 | server <> client | MAKE_OFFER | Relay an SDP offer from host to peer. |
+| 11 | server <> client | MAKE_ANSWER | Relay an SDP answer from peer to host. |
+| 12 | server <> client | ICE | Relay ICE candidates to/from peer/host. |
+| 13 | server <> client | ABORT_OFFER | Abort an SDP offer. |
+| 14 | server <> client | ABORT_ANSWER | Abort an SDP answer. |
+| 15 | server <> client | SHUTDOWN | Notify the signaller that the host has disconnected. |
+| 16 | server -> client | LOBBY_EXISTS | Cannot create lobby because it already exists. |
+| 17 | server -> client | LOBBY_NOTFOUND | Cannot join lobby because it does not exist. |
+| 18 | server -> client | LOBBY_FULL | Cannot join lobby because it is currently full. |
+| 19 | server -> client | LOBBY_LOCKED | Cannot join lobby because it is currently locked. |
+| 20 | server -> client | LOBBY_CLOSE | The host/server has decided to shutdown the lobby. |
+| 21 | server -> client | HOST_GONE | The server has decided to allow peers to negotiate who will be the new lobby host. |
+| 22 | server <- client | PEER_GONE | Notify the server that a peer has disconnected. |
+| 23 | server -> client | HOST_RECLAIM | Server has made a different peer the lobby host. |
+| 24 | server <- client | CLAIM_HOST | Ask the server to become the new lobby host. |
+| 25 | server <- client | TRANSFER_HOST | Ask the server to transfer ownership of the lobby to a peer. |
+| 26 | server <- client | ABANDON | Tell the server you are leaving a lobby. |
+| 27 | server <- client | LOCK | Ask the server to prevent access to the lobby. |
+| 28 | server <- client | UNLOCK | Ask the server to allow access to the lobby. |
+| 29 | server <- client | SIZE | Ask the server to change the maximum peers value for a lobby. |
+| 30 | server <- client | KICK | Ask the server to remove a peer from a lobby. |
+| 31 | server -> client | PASSWORD_REQUIRED | Cannot join lobby because it requires a password. |
+| 32 | server -> client | PASSWORD_ACK | Joining lobby: password accepted. |
+| 32 | server -> client | PASSWORD_FAIL | Not joining lobby: password rejected. |
+| 33 | server -> client | PEER_INVALID | Message undeliverable: Peer not found. |
 
-## Connection lifespan of a host
-```js
-// Start of lifespan
-
-// TX - INIT
-{"opcode":2,"payload":"{MY USERNAME}"}
-
-// RX - INIT_OK
-{"opcode":3,"payload":"{MY UUID}"}
-
-// TX - CONFIG_HOST
-{"opcode": 4, "payload": {"lobby_id": "{LOBBY NAME}", "allow_host_reclaim": bool, "allow_peers_to_claim_host": bool, "max_peers": int,"password": string}}
-
-// RX - ACK_HOST
-{"opcode":6}
-
-// RX - NEW_PEER
-{"opcode":9,"payload":{"id":"{PEER UUID}","username":"{PEER USERNAME}"}}
-
-// TX - MAKE_OFFER
-{"opcode":10,"payload":"{MY SDP OFFER}","rx":"{PEER UUID}"}
-
-// RX - RETURN_OFFER
-{"opcode":13,"payload":"{PEER SDP OFFER}","tx":"{PEER UUID}"}
-
-// TX - MAKE_ANSWER
-{"opcode":14,"payload":"{MY SDP ANSWER}","rx":"{PEER UUID}"}
-
-// RX - ANTICIPATE_ANSWER
-{"opcode":15,"payload":"{PEER SDP ANSWER}","tx":"{PEER UUID}"}
-
-// WebRTC connection established!
-```
-
-1. Connect to websocket.
-
-2. Send INIT to server with our username.
-	Tell the server we exist.
-
-3. Server replies INIT_OK.
-	Server is aware of our existence.
-
-4. Send CONFIG_HOST while specifying our configuration (lobby name and host options) as payload to the server.
-	Tell the server we want to host a game.
-
-5. Server replies ACK_HOST.
-	The server says it will honor our request.
-	From here, the server will wait for any peers waiting for a game to join.
-
-6. Server replies NEW_PEER with their peer ID as payload.
-	The server tells us that someone would like to find a game host.
-
-7. Send MAKE_OFFER with SDP offer as payload and recipient peer as rx to server.
-	Tell the peer that we exist, and here's an offer.
-
-8. Server sends ANTICIPATE_OFFER with SDP offer as payload, with originating peer as tx to peer.
-	From here, peer will either ignore the request (do nothing) or accept the request (accept offer).
-
-9. Server replies opcode RETURN_OFFER with SDP offer as payload and originating peer as tx.
-	The server tells us a peer has accepted our offer and has made an offer of it's own.
-
-10. Send opcode MAKE_ANSWER with SDP answer as payload and recipient peer as rx to server.
-	Tell the server we are making an answer to our peer.
-
-11. Server sends opcode ANTICIPATE_ANSWER with SDP answer as payload and originating peer as tx to peer.
-	The server will tell the recipient our answer.
-	From here, the recipient will make an offer of their own using MAKE_ANSWER to us.
-
-12. Server replies opcode ANTICIPATE_ANSWER with SDP answer as payload and originating peer as tx.
-	The sever wants us to be aware of our peer's reply to our answer.
-
-13. Send opcode ACK_CHECK with recipient peer as rx to server.
-	Ask the server to check if our peer is ready to begin communication.
-
-14. Server replies ACK_READY with originating peer as tx.
-	The server lets us know that our peer is fully ready to go.
-	At this point, let the games begin!
-
-## Connection lifespan of a peer
-```js
-// Start of lifespan
-
-// TX - INIT
-{"opcode":2,"payload":"{MY USERNAME}"}
-
-// RX - INIT_OK
-{"opcode":3,"payload":"{MY UUID}"}
-
-// RX - NEW_HOST
-{"opcode":8,"payload":{"id":"{HOST UUID}","username":"{HOST USERNAME}","lobby_id":"{LOBBY NAME}","max_peers":int,"password_required":bool}}
-
-// TX - CONFIG_PEER
-{"opcode":5,"payload":{"lobby_id": "{LOBBY NAME}", "password": string}}
-
-// RX - PASSWORD_ACK (if password is enabled and accepted)
-{"opcode":37}
-
-// RX - ACK_PEER
-{"opcode":7}
-
-// RX - ANTICIPATE_OFFER
-{"opcode":11,"payload":"{HOST SDP OFFER}","tx":"{HOST UUID}"}
-
-// TX - ACCEPT_OFFER
-{"opcode":12,"payload":"{MY SDP OFFER}","rx": "{HOST UUID}"}
-
-// RX - ANTICIPATE_ANSWER
-{"opcode":15,"payload":"{HOST SDP ANSWER}","tx":"{HOST UUID}"}
-
-// TX - MAKE_ANSWER
-{"opcode":14,"payload":"{MY SDP ANSWER}","rx": "{HOST UUID}"}
-
-// WebRTC connection established!
-```
-
-1. Connect to websocket.
-
-2. Send INIT to server with our username.
-	Tell the server we exist.
-
-3. Server replies INIT_OK.
-	Server is aware of our existence.
-
-4. Send CONFIG_PEER while specifying a game lobby ID as payload to the server.
-	Tell the server we want to join a game.
-
-5. Server replies ACK_PEER.
-	The server says it will honor our request.
-	From here, the server will wait for any hosts providing a game for us to join.
-
-6. Server replies NEW_HOST with their peer ID as payload.
-	The server tells us that someone who's hosting a game.
-	We will wait a little bit for the host to generate an offer.
-
-7. Server replies with ANTICIPATE_OFFER with SDP offer as payload, with originating peer as tx.
-	The host has created an offer for us to accept or ignore.
-	We may accept the offer by continuing with the connection lifespan as follows, or ignore it and
-	move on to another host.
-
-8. Send opcode ACCEPT_OFFER with SDP offer as payload and recipient peer as tx.
-	Tell the server to notify our game host we would like to connect to them.
-	We generate an offer and send it to the host. After that, we will wait a 
-	little bit for the host to generate an answer for our offer.
-
-9. Server replies with opcode ANTICIPATE_ANSWER with SDP answer as payload and originating peer as tx.
-	The server has notifed us of the host's answer, and will now patiently anticipate our answer.
-	During this time, we will generate an answer.
-
-10. Send opcode MAKE_ANSWER with SDP answer as payload and recipient peer as rx to server.
-	Tell the server we are making an answer to our host.
-	From here, we will continue to wait for the host.
-
-11. Server replies with opcode ACK_CHECK with originating peer as tx.
-	The server is letting us know that the host would like to check if we're ready to begin communication.
-	If we manage to get this far, things are looking good.
-
-12. Send opcode ACK_READY with originating peer as tx.
-	Tell our peer that we're ready to go. Let the games begin!
+## Connection handshake flow
+TODO
