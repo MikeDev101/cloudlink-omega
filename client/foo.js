@@ -46,11 +46,8 @@
                     { urls: 'stun:stun.mikedev101.cc:3478' },
                     { urls: 'turn:stun.mikedev101.cc:3478', username: 'foobar', credential: 'foobar' },
 
-                    // Google STUN servers in case Omega STUN server is unavailable/overloaded
+                    // Google STUN server in case Omega STUN server is unavailable/overloaded
                     { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' },
-                    { urls: 'stun:stun3.l.google.com:19302' },
-                    { urls: 'stun:stun4.l.google.com:19302' },
                 ]
             }
 
@@ -60,7 +57,6 @@
             this.websocket = null;
             this.peers = {};
             this.peerConnections = {};
-            this.peerIceCandidates = {};
             this.dataChannels = {};
             this.mode = null;
             this.hostIceSent = false;
@@ -77,13 +73,16 @@
             // Create RTCPeerConnection and store it in our class
             const pc = new RTCPeerConnection(this.configuration);
             this.peerConnections[uuid] = pc;
-            this.peerIceCandidates[uuid] = [];
-            console.log(`Created WebRTC peer with UUID ${uuid}: `, this.peerConnections[uuid]);
+            console.log(`Created WebRTC peer object with UUID ${uuid}!`);
 
             pc.onicecandidate = (e) => {
                 if (!e.candidate) return;
-                console.log(`${uuid} Got an ICE candidate:`, e.candidate);
-                this.peerIceCandidates[uuid].push(e.candidate);
+                console.log(`Client got an ICE candidate, offering candiate to peer ${uuid}...`);
+                this.sendSignallingMessage(
+                    this.signalingOpcodes.ICE,
+                    e.candidate.toJSON(),
+                    uuid
+                )
             }
 
             pc.onicegatheringstatechange = (e) => {
@@ -99,7 +98,7 @@
 
             // handle error
             pc.onicecandidateerror = (e) => {
-                console.error(`Peer ${uuid} ICE error: `, e);
+                console.warn(`Peer ${uuid} ICE error on URL \"`, e.url, "\": ", e.errorText);
             }
 
             // Handle data channel events
@@ -211,31 +210,16 @@
             );
         }
 
-        waitForIceToFinishGathering(uuid) {
-            console.log(`Waiting for RTC peer ${uuid} ICE to finish gathering...`);
+        waitForCondition(uuid, conditionalFunction) {
             const pc = this.peerConnections[uuid];
             return new Promise((resolve) => {
                 const checkInterval = setInterval(() => {
-                    if (pc.iceGatheringState == "complete") {
-                        console.log(`RTC peer ${uuid} ICE has finish gathering!`);
+                    if (conditionalFunction()) {
                         clearInterval(checkInterval);
                         resolve();
                     }
                 }, 100);
             })
-        }
-
-        async generateIce(uuid) {
-            // Wait for ICE to finish gathering
-            await this.waitForIceToFinishGathering(uuid);
-
-            // Read ICE values
-            const ice = this.peerIceCandidates[uuid];
-            let temp = [];
-            ice.forEach(e => {
-                temp.push(e.toJSON());
-            });
-            return temp;
         }
 
         initializeAsPeer(lobbyID, password) {
@@ -358,56 +342,26 @@
                     // Set local description
                     await pc.setRemoteDescription(answer);
 
-                    // Send host ICE back to peer
-                    ice = await this.generateIce(uuid);
-
-                    console.log('Sending ' + ice + ` to peer ${uuid}`);
-                    this.sendSignallingMessage(
-                        this.signalingOpcodes.ICE,
-                        ice,
-                        uuid
-                    )
                     break;
                         
                 // Handle host ICE offers
                 case this.signalingOpcodes.ICE:
-                    if (this.mode == "host") {
+                    if ((this.mode == "host") || (this.mode == "peer")) {
                         uuid = message.tx;
 
                         // Get peer object
                         pc = this.peerConnections[uuid];
 
                         // Set ICE candidates from peer
-                        message.payload.forEach(candidate => {
-                            pc.addIceCandidate(new RTCIceCandidate(candidate));
-                        });
-
-                        // Prevent sending ICE data if already sent
-                        if (this.hostIceSent) return;
-                        this.hostIceSent = true;
-
-                        // Send peer ICE back to peer
-                        ice = await this.generateIce(uuid);
-                        this.sendSignallingMessage(
-                            this.signalingOpcodes.ICE,
-                            ice,
-                            uuid
-                        )
-                    
-                    } else if (this.mode == "peer") {
-                        uuid = message.tx;
-
-                        // Get peer object
-                        pc = this.peerConnections[uuid];
-
-                        // Set ICE candidates from host
-                        message.payload.forEach(candidate => {
-                            pc.addIceCandidate(new RTCIceCandidate(candidate));
-                        });
+                        pc.addIceCandidate(new RTCIceCandidate(message.payload));
                     }
                     break;
             }
         }
+    }
+
+    function createClient(self, args) {
+        self.client = new WebRTCChatClient(args.USERNAME, args.UGI);
     }
 
     class myExtension {
@@ -559,8 +513,8 @@
         }
 
         initalize(args) {
-            if (!this.client.websocket) return false;
-            this.client = new WebRTCChatClient(args.USERNAME, args.UGI);
+            if (!this.client) return createClient(this, args);
+            if (!this.client.websocket) return createClient(this, args);
         }
 
         host(args) {
