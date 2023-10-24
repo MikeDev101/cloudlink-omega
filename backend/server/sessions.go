@@ -135,9 +135,11 @@ func (manager *Manager) AbandonLobbies(client *Client) {
 		lobby := manager.lobbies[client.lobbyID]
 
 		// Remove peer
-		lobby.removePeer(client)
+		defer manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+		removePeer(lobby, client)
+
 		log.Printf("[%s] Removing peer %s from lobby \"%s\"", manager.Name, client.id, client.lobbyID)
-		manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+
 	}
 }
 

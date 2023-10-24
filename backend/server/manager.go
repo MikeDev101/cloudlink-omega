@@ -64,7 +64,7 @@ func (manager *Manager) FreeAccessLock(lock *sync.RWMutex, something string) {
 	}
 }
 
-func (lobby *Lobby) removePeer(target *Client) {
+func removePeer(lobby *Lobby, target *Client) {
 	slice := lobby.Peers
 	for i, value := range slice {
 		if value == target {
@@ -130,6 +130,7 @@ func NewHost(lobbyID string, client *Client, manager *Manager, AllowHostReclaim 
 			Locked:                false,
 		}
 		manager.lobbies[lobbyID].Host = client
+		manager.lobbies[lobbyID].Peers = append(manager.lobbies[lobbyID].Peers, client)
 
 		// Update client state
 		manager.AcquireAccessLock(&client.stateMutex, "client state")

@@ -22,35 +22,30 @@ var Opcodes = map[string]int{
 	"NEW_HOST":          8,
 	"NEW_PEER":          9,
 	"MAKE_OFFER":        10,
-	"ANTICIPATE_OFFER":  11,
-	"ACCEPT_OFFER":      12,
-	"RETURN_OFFER":      13,
-	"MAKE_ANSWER":       14,
-	"ANTICIPATE_ANSWER": 15,
-	"ACK_CHECK":         16,
-	"ACK_READY":         17,
-	"ACK_ABORT":         18,
-	"SHUTDOWN":          19,
-	"SHUTDOWN_ACK":      20,
-	"LOBBY_EXISTS":      21,
-	"LOBBY_NOTFOUND":    22,
-	"LOBBY_FULL":        23,
-	"LOBBY_LOCKED":      24,
-	"LOBBY_CLOSE":       25,
-	"HOST_GONE":         26,
-	"PEER_GONE":         27,
-	"HOST_RECLAIM":      28,
-	"CLAIM_HOST":        29,
-	"TRANSFER_HOST":     30,
-	"ABANDON":           31,
-	"LOCK":              32,
-	"UNLOCK":            33,
-	"SIZE":              34,
-	"KICK":              35,
-	"PASSWORD_REQUIRED": 36,
-	"PASSWORD_ACK":      37,
-	"PASSWORD_FAIL":     38,
-	"PEER_INVALID":      39,
+	"MAKE_ANSWER":       11,
+	"ICE":               12,
+	"ABORT_OFFER":       13,
+	"ABORT_ANSWER":      14,
+	"SHUTDOWN":          15,
+	"LOBBY_EXISTS":      16,
+	"LOBBY_NOTFOUND":    17,
+	"LOBBY_FULL":        18,
+	"LOBBY_LOCKED":      19,
+	"LOBBY_CLOSE":       20,
+	"HOST_GONE":         21,
+	"PEER_GONE":         22,
+	"HOST_RECLAIM":      23,
+	"CLAIM_HOST":        24,
+	"TRANSFER_HOST":     25,
+	"ABANDON":           26,
+	"LOCK":              27,
+	"UNLOCK":            28,
+	"SIZE":              29,
+	"KICK":              30,
+	"PASSWORD_REQUIRED": 31,
+	"PASSWORD_ACK":      32,
+	"PASSWORD_FAIL":     33,
+	"PEER_INVALID":      34,
 }
 
 func NotifyPeersOfStateChange(eventType int, lobbyID string, manager *Manager, client *Client) {
@@ -368,7 +363,17 @@ func opcode_CONFIG_PEER(message []byte, packet *Packet, client *Client, manager 
 
 	// Get lobby object
 	manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
-	lobby := manager.lobbies[lobbyID]
+	lobby, exists := manager.lobbies[lobbyID]
+	if !exists {
+		// Free the lock
+		manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+
+		// Tell the client that the lobby doesn't exist
+		go UnicastMessage(client, JSONDump(&Packet{
+			Opcode: Opcodes["LOBBY_NOTFOUND"],
+		}), nil)
+		return
+	}
 	lobby_password := lobby.Password
 	password_required := (lobby.Password != "")
 	max_peers := lobby.MaxPeers
@@ -478,54 +483,7 @@ func opcode_MAKE_OFFER(message []byte, packet *Packet, client *Client, manager *
 
 	// Send offer to peer
 	UnicastMessage(rxclient, JSONDump(&Packet{
-		Opcode:  Opcodes["ANTICIPATE_OFFER"],
-		Payload: packet.Payload,
-		Tx:      client.id.String(),
-	}), nil)
-}
-
-// Handle ACCEPT_OFFER opcodes.
-func opcode_ACCEPT_OFFER(message []byte, packet *Packet, client *Client, manager *Manager) {
-	// Require a username to be set
-	if ok := client.assertUsernameSet(); !ok {
-		return
-	}
-
-	// Assert recipient (rx) must be string type
-	var rx, ok = client.assertString(packet.Rx)
-	if !ok {
-		return
-	}
-
-	// Parse UUID
-	id, err := uuid.FromString(rx)
-	if err != nil {
-
-		// Tell the client the UUID was invalid and close the connection
-		go client.CloseConnectionOnError(
-			Opcodes["VIOLATION"],
-			"UUID parsing error: peer ID (rx) not a valid UUID format",
-			websocket.CloseUnsupportedData,
-		)
-		return
-	}
-
-	// Find client
-	manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
-	var rxclient, exists = manager.clients[id]
-	manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
-	if !exists {
-
-		// Tell origin the recipient peer is invalid
-		go UnicastMessage(client, JSONDump(&Packet{
-			Opcode: Opcodes["PEER_INVALID"],
-		}), nil)
-		return
-	}
-
-	// Send offer to peer
-	UnicastMessage(rxclient, JSONDump(&Packet{
-		Opcode:  Opcodes["RETURN_OFFER"],
+		Opcode:  Opcodes["MAKE_OFFER"],
 		Payload: packet.Payload,
 		Tx:      client.id.String(),
 	}), nil)
@@ -570,9 +528,56 @@ func opcode_MAKE_ANSWER(message []byte, packet *Packet, client *Client, manager 
 		return
 	}
 
-	// Send offer to peer
+	// Send answer to peer
 	UnicastMessage(rxclient, JSONDump(&Packet{
-		Opcode:  Opcodes["ANTICIPATE_ANSWER"],
+		Opcode:  Opcodes["MAKE_ANSWER"],
+		Payload: packet.Payload,
+		Tx:      client.id.String(),
+	}), nil)
+}
+
+// Handle ICE opcodes.
+func opcode_ICE(message []byte, packet *Packet, client *Client, manager *Manager) {
+	// Require a username to be set
+	if ok := client.assertUsernameSet(); !ok {
+		return
+	}
+
+	// Assert recipient (rx) must be string type
+	var rx, ok = client.assertString(packet.Rx)
+	if !ok {
+		return
+	}
+
+	// Parse UUID
+	id, err := uuid.FromString(rx)
+	if err != nil {
+
+		// Tell the client the UUID was invalid and close the connection
+		go client.CloseConnectionOnError(
+			Opcodes["VIOLATION"],
+			"UUID parsing error: peer ID (rx) not a valid UUID format",
+			websocket.CloseUnsupportedData,
+		)
+		return
+	}
+
+	// Find client
+	manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+	var rxclient, exists = manager.clients[id]
+	manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+	if !exists {
+
+		// Tell origin the recipient peer is invalid
+		go UnicastMessage(client, JSONDump(&Packet{
+			Opcode: Opcodes["PEER_INVALID"],
+		}), nil)
+		return
+	}
+
+	// Send ICE data to peer
+	UnicastMessage(rxclient, JSONDump(&Packet{
+		Opcode:  Opcodes["ICE"],
 		Payload: packet.Payload,
 		Tx:      client.id.String(),
 	}), nil)
@@ -609,11 +614,11 @@ func SignalingOpcode(message []byte, manager *Manager, client *Client) {
 	case Opcodes["MAKE_OFFER"]:
 		opcode_MAKE_OFFER(message, &packet, client, manager)
 
-	case Opcodes["ACCEPT_OFFER"]:
-		opcode_ACCEPT_OFFER(message, &packet, client, manager)
-
 	case Opcodes["MAKE_ANSWER"]:
 		opcode_MAKE_ANSWER(message, &packet, client, manager)
+
+	case Opcodes["ICE"]:
+		opcode_ICE(message, &packet, client, manager)
 
 	default:
 		client.CloseConnectionOnError(
