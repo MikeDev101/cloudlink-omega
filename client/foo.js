@@ -1,6 +1,8 @@
-(function (vm) {
+(function (Scratch) {
     class WebRTCChatClient {
-        constructor(username, ugi) {
+        constructor(Scratch, username, ugi) {
+            this.Scratch = Scratch;
+
             // Define the opcodes used for signalling
             this.signalingOpcodes = {
                 VIOLATION: 0,
@@ -44,10 +46,10 @@
                 iceServers: [
                     // Omega STUN/TURN servers
                     { urls: 'stun:stun.mikedev101.cc:3478' },
-                    { urls: 'turn:stun.mikedev101.cc:3478', username: 'foobar', credential: 'foobar' },
+                    // { urls: 'turn:stun.mikedev101.cc:3478', username: 'foobar', credential: 'foobar' },
 
                     // Google STUN server in case Omega STUN server is unavailable/overloaded
-                    { urls: 'stun:stun.l.google.com:19302' },
+                    // { urls: 'stun:stun.l.google.com:19302' },
                 ]
             }
 
@@ -70,9 +72,11 @@
         async initializePeer(uuid) {
             // Create RTCPeerConnection and store it in our class
             const con = new RTCPeerConnection(this.configuration);
+            con.bufferedAmountLowThreshold = 1;
             this.peers[uuid] = {
 				con: con,
 				channels: {},
+                channelData: {},
 			};
             console.log(`Created WebRTC peer object with UUID ${uuid}!`);
 
@@ -106,6 +110,12 @@
                 this.initializeDataChannel(event.channel, con, uuid);
             }
 
+            // Handle buffered amount low events (used as a way to wait for messages being sent)
+            con.onbufferedamountlow = (e) => {
+                console.log(e);
+                // this.peers[uuid].channelData[channelName].isSent = true;
+            }
+
             return this.peers[uuid];
         }
 
@@ -120,11 +130,19 @@
 				if (!this.peers[uuid].channels.hasOwnProperty(channelName)) {
 					console.log(`Created channel reference for peer  ${uuid} with name \"${channelName}\".`);
 					this.peers[uuid].channels[channelName] = chan;
+                    this.peers[uuid].channelData[channelName] = {
+                        value: "",
+                        isNew: false,
+                    };
 				}
             }
 
             chan.onmessage = (e) => {
-                console.log(`Peer ${uuid} channel \"${channelName}\" got new message from ${e.origin}: ${e.data}`);
+                this.Scratch.vm.runtime.startHats('cloudlinkomega_onChannelMessage');
+                this.peers[uuid].channelData[channelName] = {
+                    value: e.data,
+                    isNew: false,
+                };
             }
 
             chan.onerror = (e) => {
@@ -140,8 +158,9 @@
 				
 				// Destroy the channel object
 				if (this.peers[uuid].channels.hasOwnProperty(channelName)) {
-					console.log(`Deleted channel reference for peer  ${uuid} with name \"${channelName}\".`);
 					this.peers[uuid].channels.delete(channelName);
+                    this.peers[uuid].channelData.delete(channelName);
+                    console.log(`Deleted channel reference for peer  ${uuid} with name \"${channelName}\".`);
 				}
             }
         }
@@ -223,15 +242,14 @@
             );
         }
 
-        waitForCondition(uuid, conditionalFunction) {
-            const con = this.peers[uuid];
+        waitForCondition(conditionalFunction) {
             return new Promise((resolve) => {
                 const checkInterval = setInterval(() => {
                     if (conditionalFunction()) {
                         clearInterval(checkInterval);
                         resolve();
                     }
-                }, 100);
+                }, 10);
             })
         }
 
@@ -262,7 +280,7 @@
 
         async handleSignalingMessage(message) {
             // Placeholders
-            let uuid, offer, answer, con, temp, channels = null;
+            let uuid, offer, answer, con, temp, channels, channelData = null;
 
             // Handle various signaling messages and implement the negotiation process
             switch (message.opcode) {
@@ -298,9 +316,14 @@
 					temp = await this.initializePeer(uuid);
                     con = temp.con;
 					channels = temp.channels;
+                    channelData = temp.channelData;
 
                     // Generate data channel
                     channels['default'] = con.createDataChannel('default', {ordered: true});
+                    channelData['default'] = {
+                        value: "",
+                        isNew: false,
+                    };
 
                     // Generate offer
                     offer = await con.createOffer();
@@ -326,9 +349,14 @@
 					temp = await this.initializePeer(uuid);
                     con = temp.con;
 					channels = temp.channels;
+                    channelData = temp.channelData;
 
                     // Generate data channel
                     channels['default'] = con.createDataChannel('default', {ordered: true});
+                    channelData['default'] = {
+                        value: "",
+                        isNew: false,
+                    };
 
                     // Configure remote description
                     await con.setRemoteDescription(offer);
@@ -380,26 +408,58 @@
     }
 
     function createClient(self, args) {
-        self.client = new WebRTCChatClient(args.USERNAME, args.UGI);
+        self.client = new WebRTCChatClient(self.Scratch, args.USERNAME, args.UGI);
     }
 
-    class myExtension {
-        constructor() {
+    class CloudLinkOmega {
+        constructor(Scratch) {
             // WebRTCChatClient object
             this.client;
+            this.Scratch = Scratch;
         }
 
         getInfo() {
             return {
-                id: 'cloudlinkOmega',
-                name: 'CloudLink Omega',
-                // docsURI: # TODO: website
+                id: 'cloudlinkomega',
+				name: 'CloudLink Ω',
+                // docsURI: 'https://cloudlink.mikedev101.cc/omega/', # TODO: website
                 // blockIconURI: TODO: add SVG
                 // menuIconURI: TODO: add SVG
                 color1: "#ff4d4c",
                 color2: "#ff6160",
                 color3: "#ff7473",
                 blocks: [
+                    {
+                        opcode: "onChannelMessage",
+                        blockType: "hat",
+                        text: "When I receive new message from peer [PEER] in channel [CHANNEL]",
+                        isEdgeActivated: false,
+                        arguments: {
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'default',
+                            },
+                            PEER: {
+                                type: 'string',
+                                defaultValue: 'UUID',
+                            },
+                        },
+                    },
+                    {
+                        opcode: "get_channel_data",
+                        blockType: "reporter",
+                        text: "Channel [CHANNEL] data from peer [PEER]",
+                        arguments: {
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'default',
+                            },
+                            PEER: {
+                                type: 'string',
+                                defaultValue: 'UUID',
+                            },
+                        },
+                    },
                     {
                         opcode: 'is_signalling_connected',
                         blockType: 'Boolean',
@@ -461,7 +521,7 @@
                         }
                     },
                     {
-                        opcode: 'con',
+                        opcode: 'peer',
                         blockType: 'command',
                         text: 'Join lobby [LOBBY] Password: [PASSWORD]',
                         arguments: {
@@ -486,7 +546,7 @@
                             },
                             PEER: {
                                 type: 'string',
-                                defaultValue: 'Banana',
+                                defaultValue: 'UUID',
                             },
 							CHANNEL: {
                                 type: 'string',
@@ -548,16 +608,58 @@
             };
         }
 
+        onChannelMessage(args) {
+            if (this.client 
+                && this.client.isSignallingConnected
+                && this.client.peers.hasOwnProperty(args.PEER)
+                && this.client.peers[args.PEER].channelData.hasOwnProperty(args.CHANNEL)
+                && this.client.peers[args.PEER].channelData[args.CHANNEL].isNew
+            ) {
+                this.client.peers[args.PEER].channelData[args.CHANNEL].isNew = false;
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+        get_channel_data(args) {
+            return new Promise((resolve) => {
+                if (this.client 
+                    && this.client.isSignallingConnected
+                    && this.client.peers.hasOwnProperty(args.PEER)
+                    && this.client.peers[args.PEER].channelData.hasOwnProperty(args.CHANNEL)
+                ) {
+                    resolve(this.client.peers[args.PEER].channelData[args.CHANNEL].value);
+                } else {
+                    resolve("");
+                }
+            });
+        }
+
         is_signalling_connected() {
-            if (!this.client) return false;
-            if (!this.client.websocket) return false;
-            return this.client.isSignallingConnected();
+            return new Promise((resolve) => {
+                if (this.client
+                    && this.client.websocket
+                    && this.client.isSignallingConnected()
+                ) {
+                    resolve(true);
+                } else {
+                    resolve(false);
+                }
+            });
         }
 
         is_peer_connected(args) {
-            if (!this.client) return false;
-            if (!this.client.isSignallingConnected()) return false;
-            return this.client.peers.hasOwnProperty(args.PEER);
+            return new Promise((resolve) => {
+                if (this.client
+                    && this.client.websocket
+                    && this.client.isSignallingConnected()
+                ) {
+                    resolve(true);
+                } else {
+                    resolve(false);
+                }
+            });
         }
 
         get_peers() {
@@ -596,62 +698,53 @@
             this.client.initializeAsHost(args.LOBBY, args.PASSWORD, allowHostsReclaim, allowPeersClaimHost, args.PEERS);
         }
 
-        con(args) {
+        peer(args) {
             if (!this.client) return;
             if (!this.client.isSignallingConnected()) return;
             this.client.initializeAsPeer(args.LOBBY, args.PASSWORD);
         }
 
         send(args) {
-            if (!this.client) return;
-            if (!this.client.isSignallingConnected()) return;
-			if (!this.client.peers.hasOwnProperty(args.PEER)) {
-				console.warn(`Can't send message in channel \"${args.CHANNEL}\" to peer ${args.PEER}: Peer not found.`);
-				return;
-			}
-			
-			// Get con object
-			const temp = this.client.peers[args.PEER];
-			const channels = temp.channels;
-			
-			if (!channels.hasOwnProperty(args.CHANNEL)) {
-				console.warn(`Can't send message in channel \"${args.CHANNEL}\" to peer ${args.PEER}: Channel does not exist.`);
-				return;
-			};
-			
-			// Send message
-			console.log(`Sending message \"${args.DATA}\" in channel \"${args.CHANNEL}\" to peer ${args.PEER}...`);
-			channels[args.CHANNEL].send(args.DATA);
+            return new Promise(async(resolve) => {
+                if (this.client
+                    && this.client.isSignallingConnected()
+                    && this.client.peers.hasOwnProperty(args.PEER)
+                    && this.client.peers[args.PEER].channels.hasOwnProperty(args.CHANNEL)
+                ) {
+                    // Send message and wait for it to finish sending
+                    const before = this.client.peers[args.PEER].bufferedAmount;
+                    this.client.peers[args.PEER].channels[args.CHANNEL].send(args.DATA);
+                    const after = this.client.peers[args.PEER].bufferedAmount;
+                    this.client.peers[args.PEER].channels[args.CHANNEL].bufferedAmountLowThreshold = before;
+                    await new Promise(r => this.client.peers[args.PEER].channels[args.CHANNEL].addEventListener("bufferedamountlow", r))
+                    resolve();
+                } else {
+                    resolve();
+                }
+            });
         }
 		
 		newchan(args) {
-			if (!this.client) return;
-            if (!this.client.isSignallingConnected()) return;
-			if (!this.client.peers.hasOwnProperty(args.PEER)) {
-				console.warn(`Can't create channel \"${args.CHANNEL}\" with peer ${args.PEER}: Peer not found.`);
-				return;
-			}
-			
-			// Get con object
-			const temp = this.client.peers[args.PEER];
-			const con = temp.con;
-			const channels = temp.channels;
-			
-			if (channels.hasOwnProperty(args.CHANNEL)) {
-				console.warn(`Can't create channel \"${args.CHANNEL}\" with peer ${args.PEER}: Channel already exists.`);
-				return;
-			};
-			
-			const ordered = (args.CHANNELCONFIG == "1");
-			if (ordered) {
-				console.log(`Creating ordered channel \"${args.CHANNEL}\" with peer ${args.PEER}...`);
-			} else {
-				console.log(`Creating unordered channel \"${args.CHANNEL}\" with peer ${args.PEER}...`);
-			}
-			
-			// Create channel
-			channels[args.CHANNEL] = con.createDataChannel(args.CHANNEL, {ordered: ordered}); 
+            return new Promise(async(resolve) => {
+                if (this.client
+                    && this.client.isSignallingConnected()
+                    && this.client.peers.hasOwnProperty(args.PEER)
+                    && !this.client.peers[args.PEER].channels.hasOwnProperty(args.CHANNEL)
+                ) {
+                    // Create channel
+                    let ordered = (args.CHANNELCONFIG == "1");
+                    this.client.peers[args.PEER].channels[args.CHANNEL] = await this.client.peers[args.PEER].con.createDataChannel(args.CHANNEL, {ordered: ordered});
+                    this.client.peers[args.PEER].channelData[args.CHANNEL] = {
+                        value: "",
+                        isNew: false,
+                        isSent: false,
+                    };
+                    resolve();
+                } else {
+                    resolve();
+                }
+            });
 		}
     };
-    vm.extensionManager._registerInternalExtension(new myExtension());
-})(vm);
+    Scratch.extensions.register(new CloudLinkOmega(Scratch));
+})(Scratch);
