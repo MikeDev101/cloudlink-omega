@@ -484,11 +484,6 @@
                 console.log('Got', message, `from peer \"${peerUsername}\" (${peerUUID}) in channel \"${thisChan.label}\"`);
 
                 switch (message.command) {
-                    case "channel":
-                        // Create channel
-                        self.cons[peerUUID].con.createDataChannel(String(thisChan.label), { ordered: true });
-                        break;
-
                     case "command":
                         // Store the message
                         let lists = self.cons[peerUUID].chans[String(thisChan.label)].lists;
@@ -949,6 +944,7 @@
                     return;
                 };
                 let ordered = (args.ORDERED == "1");
+                let username = self.cons[args.PEER].username;
                 self.sendSignallingMessage(self.signalingOpcodes.NEW_CHANNEL, {id: args.ID, ordered: ordered, name: String(args.CHANNEL)}, args.PEER);
                 let chan = self.cons[args.PEER].con.createDataChannel(String(args.CHANNEL), {
                     ordered: ordered,
@@ -962,8 +958,9 @@
                     new: false,
                     value: null,
                 };
+                self.initializeDataChannel(chan, args.PEER, username);
                 console.log(self.cons[args.PEER].chans[String(args.CHANNEL)]);
-                console.log(`Manually opening channel  \"${args.CHANNEL}\" with peer (${args.PEER})`);
+                console.log(`Manually opening channel  \"${args.CHANNEL}\" with peer \"${username}\"(${args.PEER})`);
                 resolve();
             });
         }
