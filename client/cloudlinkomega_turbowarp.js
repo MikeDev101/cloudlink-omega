@@ -9,6 +9,7 @@
             this.websocket = null;
             this.cons = {};
             this.mode = null;
+            this.newestPeer = {};
             this.configuration = {
                 iceServers: [
                     // Omega STUN/TURN servers
@@ -79,12 +80,6 @@
                 color3: "#ff7473",
                 blocks: [
                     {
-                        opcode: 'my_uuid',
-                        blockType: 'reporter',
-                        text: 'My UUID',
-                    },
-                    "---",
-                    {
                         opcode: "on_signalling_connect",
                         blockType: "event",
                         text: "When I get connected to the game server",
@@ -105,6 +100,45 @@
                             },
                         }
                     },
+                    {
+                        opcode: 'is_signalling_connected',
+                        blockType: 'Boolean',
+                        text: 'Connected to game server?',
+                    },
+                    "---",
+                    {
+                        opcode: 'my_uuid',
+                        blockType: 'reporter',
+                        text: 'My UUID',
+                    },
+                    {
+                        opcode: 'get_peers',
+                        blockType: 'reporter',
+                        text: 'Connected peers',
+                    },
+                    {
+                        opcode: 'get_peer_channels',
+                        blockType: 'reporter',
+                        text: 'Peer [PEER] channels',
+                        arguments: {
+                            PEER: {
+                                type: 'string',
+                                defaultValue: 'UUID',
+                            },
+                        },
+                    },
+                    {
+                        opcode: 'is_peer_connected',
+                        blockType: 'Boolean',
+                        text: 'Connected to peer [PEER]?',
+                        arguments: {
+                            PEER: {
+                                type: 'string',
+                                defaultValue: 'UUID',
+                            }
+                        }
+                    },
+                    "---",
                     {
                         opcode: 'host',
                         blockType: 'command',
@@ -145,37 +179,29 @@
                         }
                     },
                     {
-                        opcode: 'is_signalling_connected',
-                        blockType: 'Boolean',
-                        text: 'Connected to game server?',
+                        opcode: "get_client_mode",
+                        blockType: "reporter",
+                        text: "Am I a host or a peer?",
+                    },
+                    "---",
+                    {
+                        opcode: 'on_new_peer',
+                        blockType: 'event',
+                        isEdgeActivated: false,
+                        text: 'When I get connected to a new peer',
+                    },
+                    {
+                        opcode: "get_new_peer",
+                        blockType: "reporter",
+                        text: "Newest peer connected",
                     },
                     "---",
                     {
                         opcode: "on_channel_message",
                         blockType: "hat",
-                        text: "When I finish getting messages from peer [PEER] in channel [CHANNEL]",
+                        text: "When I get a message from peer [PEER] in channel [CHANNEL]",
                         isEdgeActivated: false,
                         arguments: {
-                            CHANNEL: {
-                                type: 'string',
-                                defaultValue: 'default',
-                            },
-                            PEER: {
-                                type: 'string',
-                                defaultValue: 'UUID',
-                            },
-                        },
-                    },
-                    {
-                        opcode: "on_channel_cloud_list",
-                        blockType: "hat",
-                        text: "When I get a cloud list named [LISTNAME] from peer [PEER] in channel [CHANNEL]",
-                        isEdgeActivated: false,
-                        arguments: {
-                            LISTNAME: {
-                                type: 'string',
-                                defaultValue: 'my cloud list',
-                            },
                             CHANNEL: {
                                 type: 'string',
                                 defaultValue: 'default',
@@ -204,26 +230,6 @@
                                 defaultValue: 'default',
                             },
                         }
-                    },
-                    "---",
-                    {
-                        opcode: "channel_data_store_in_list",
-                        blockType: "command",
-                        text: "Store received messages from peer [PEER]'s channel [CHANNEL] into list [LIST]",
-                        arguments: {
-                            CHANNEL: {
-                                type: 'string',
-                                defaultValue: 'default',
-                            },
-                            PEER: {
-                                type: 'string',
-                                defaultValue: 'UUID',
-                            },
-                            LIST: {
-                                type: 'string',
-                                defaultValue: 'my list',
-                            },
-                        },
                     },
                     {
                         opcode: "channel_data_store_in_variable",
@@ -261,17 +267,22 @@
                     },
                     "---",
                     {
-                        opcode: "make_list",
-                        blockType: "command",
-                        text: "Make list [LIST] a cloud list named [LISTNAME]",
+                        opcode: "on_channel_cloud_list",
+                        blockType: "hat",
+                        text: "When I get a cloud list named [LISTNAME] from peer [PEER] in channel [CHANNEL]",
+                        isEdgeActivated: false,
                         arguments: {
-                            LIST: {
-                                type: 'string',
-                                defaultValue: 'my list',
-                            },
                             LISTNAME: {
                                 type: 'string',
                                 defaultValue: 'my cloud list',
+                            },
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'default',
+                            },
+                            PEER: {
+                                type: 'string',
+                                defaultValue: 'UUID',
                             },
                         },
                     },
@@ -294,33 +305,39 @@
                             },
                         },
                     },
-                    "---",
                     {
-                        opcode: 'get_peers',
-                        blockType: 'reporter',
-                        text: 'Peers',
-                    },
-                    {
-                        opcode: 'get_peer_channels',
-                        blockType: 'reporter',
-                        text: 'Peer [PEER] channels',
+                        opcode: "channel_data_store_in_list",
+                        blockType: "command",
+                        text: "Store received messages from peer [PEER]'s channel [CHANNEL] into list [LIST]",
                         arguments: {
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'default',
+                            },
                             PEER: {
                                 type: 'string',
                                 defaultValue: 'UUID',
                             },
+                            LIST: {
+                                type: 'string',
+                                defaultValue: 'my list',
+                            },
                         },
                     },
                     {
-                        opcode: 'is_peer_connected',
-                        blockType: 'Boolean',
-                        text: 'Connected to peer [PEER]?',
+                        opcode: "make_list",
+                        blockType: "command",
+                        text: "Make list [LIST] a cloud list named [LISTNAME]",
                         arguments: {
-                            PEER: {
+                            LIST: {
                                 type: 'string',
-                                defaultValue: 'UUID',
-                            }
-                        }
+                                defaultValue: 'my list',
+                            },
+                            LISTNAME: {
+                                type: 'string',
+                                defaultValue: 'my cloud list',
+                            },
+                        },
                     },
                     "---",
                     {
@@ -442,13 +459,14 @@
             con.onconnectionstatechange = (e) => {
                 switch (con.connectionState) {
                     case "new":
-                        console.log(e);
                         break;
                     case "connecting":
                         console.log(`Peer \"${peerUsername}\" (${peerUUID}) connecting...`);
                         break;
                     case "connected":
                         console.log(`Peer \"${peerUsername}\" (${peerUUID}) connected!`);
+                        self.newestPeer = { [String(peerUsername)]: String(peerUUID) };
+                        self.runtime.startHats("cloudlinkomega_on_new_peer");
                         break;
                     case "closing":
                         console.log(`Peer \"${peerUsername}\" (${peerUUID}) disconnecting...`);
@@ -474,17 +492,14 @@
             const self = this;
             
             thisChan.onopen = (e) => {
-                console.log(e);
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${thisChan.label}\" opened! Is this channel ordered: ${chan.ordered}, ID: ${chan.id}`);
             }
 
             thisChan.onmessage = (e) => {
-                console.log(e);
                 let message = JSON.parse(e.data);
                 console.log('Got', message, `from peer \"${peerUsername}\" (${peerUUID}) in channel \"${thisChan.label}\"`);
-
                 switch (message.command) {
-                    case "command":
+                    case "data":
                         // Store the message
                         let lists = self.cons[peerUUID].chans[String(thisChan.label)].lists;
                         let variables = self.cons[peerUUID].chans[String(thisChan.label)].vars;
@@ -517,17 +532,14 @@
                 }
             }
             thisChan.onerror = (e) => {
-                console.log(e);
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${thisChan.label}\" error!`, e.error);
-                // TODO: destroy channel reference
+                // Destroy channel reference
                 delete self.cons[peerUUID].chans[String(thisChan.label)];
             }
             thisChan.onclosing = (e) => {
-                console.log(e);
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${thisChan.label}\" closing...`);
             }
             thisChan.onclose = (e) => {
-                console.log(e);
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${thisChan.label}\" closed!`);
                 // Destroy channel reference
                 delete self.cons[peerUUID].chans[String(thisChan.label)];
@@ -603,7 +615,6 @@
                 payload: payload,
                 rx: rx
             };
-            console.log(`Sending message to server:`, message);
             self.websocket.send(JSON.stringify(message));
         }
 
@@ -661,7 +672,7 @@
                         lists: {},
                         vars: {},
                         new: false,
-                        value: null,
+                        value: "",
                     };
                     self.initializeDataChannel(chan, message.payload.id, message.payload.username);
 
@@ -703,7 +714,7 @@
                         lists: {},
                         vars: {},
                         new: false,
-                        value: null,
+                        value: "",
                     };
                     self.initializeDataChannel(chan, message.tx.id, message.tx.username);
 
@@ -746,9 +757,6 @@
                         // Create channel
                         peerUUID = message.tx.id;
                         peerUsername = message.tx.username;
-
-                        console.log(peerUUID, peerUsername, message.payload, self.cons[peerUUID]);
-
                         chan = self.cons[peerUUID].con.createDataChannel(message.payload.name, {
                             ordered: message.payload.ordered,
                             negotiated: true,
@@ -759,12 +767,22 @@
                             lists: {},
                             vars: {},
                             new: false,
-                            value: null,
+                            value: "",
                         };
                         self.initializeDataChannel(chan, peerUUID, peerUsername);
                     }
                     break;
             }
+        }
+
+        get_new_peer(args, util) {
+            const self = this;
+            return self.makeValueScratchSafe(self.newestPeer);
+        }
+
+        get_client_mode(args, util) {
+            const self = this;
+            return self.makeValueScratchSafe(self.mode);
         }
 
         my_uuid(args, util) {
@@ -788,7 +806,7 @@
 
         on_channel_message(args, util) {
             const self = this;
-            if (!self.cons[args.PEER] || !self.cons[args.PEER].chans[args.CHANNEL]) return false;
+            if (!self.cons.hasOwnProperty(args.PEER) || !self.cons[args.PEER].chans.hasOwnProperty(args.CHANNEL)) return false;
             if (self.cons[args.PEER].chans[args.CHANNEL].new) {
                 self.cons[args.PEER].chans[args.CHANNEL].new = false;
                 return true;
@@ -798,38 +816,36 @@
 
         get_channel_data(args, util) {
             const self = this;
-            if (!self.cons[args.PEER] || !self.cons[args.PEER].chans[args.CHANNEL]) return "";
             return self.makeValueScratchSafe(self.cons[args.PEER].chans[args.CHANNEL].value);
         }
 
         is_signalling_connected(args, util) {
             const self = this;
-            return (self.websocket && self.websocket.readyState === WebSocket.OPEN);
+            if (!self.websocket) return false;
+            return (self.websocket.readyState === WebSocket.OPEN);
         }
 
         is_peer_connected(args, util) {
             const self = this;
-            return false; // stub
-            /*return new Promise((resolve) => {
-                if (self.isSignallingConnected()
-                    && (args.PEER in self.getPeers())
-                ) {
-                    resolve(true);
-                } else {
-                    resolve(false);
-                }
-            });*/
+            if (args.PEER in Object.keys(self.cons)) return true;
+            return false;
         }
 
         get_peers(args, util) {
             const self = this;
-            return "[]" // stub
+            let peers = {};
+            for (const uuid in self.cons) {
+                if (self.cons.hasOwnProperty(uuid)) {
+                    peers[String(self.cons[uuid].username)] = String(uuid);
+                };
+            };
+            return self.makeValueScratchSafe(peers);
         }
 
         get_peer_channels(args, util) {
             const self = this;
             /*if (!self.isSignallingConnected()
-            || !self.peers.cons.hasOwnProperty(args.PEER)
+            || !self.cons.hasOwnProperty(args.PEER)
             ) return "[]";
             return self.makeValueScratchSafe(self.getPeerChannels(args.PEER)); */
             return "[]"; // stub
@@ -837,6 +853,8 @@
 
         host(args, util) {
             const self = this;
+            if (!self.is_signalling_connected()) return;
+
             let allowHostsReclaim;
             let allowPeersClaimHost;
             switch (args.CLAIMCONFIG) {
@@ -865,6 +883,7 @@
 
         peer(args, util) {
             const self = this;
+            if (!self.is_signalling_connected()) return;
             self.initializeAsPeer(
                 args.LOBBY,
                 args.PASSWORD
@@ -875,7 +894,6 @@
             const self = this;
             return new Promise((resolve, reject) => {
                 let message = { command: "data", payload: args.DATA };
-                console.log(self.cons[args.PEER]);
                 let chan = self.cons[args.PEER].chans[args.CHANNEL].chan;
                 chan.send(JSON.stringify(message));
                 console.log("Sent", message, `to peer \"${self.cons[args.PEER].username}\" (${args.PEER}) using channel \"${args.CHANNEL}\"`);
@@ -889,7 +907,6 @@
                 // Remove this target from the object store
                 if (String(args.LIST) == "null") {
                     delete self.cons[args.PEER].chans[args.CHANNEL].lists[util.target.id];
-                    console.log(self.cons[args.PEER].chans[args.CHANNEL].lists[util.target.id]);
                     resolve();
                     return;
                 }
@@ -901,7 +918,6 @@
                         target: util.target.id,
                         id: args.LIST,
                     };
-                    console.log(self.cons[args.PEER].chans[args.CHANNEL].lists[util.target.id]);
                     resolve();
                 } else reject(`List \"${args.LIST}\" not found.`);
             });
@@ -914,7 +930,6 @@
                 // Remove this target from the object store
                 if (String(args.VAR) == "null") {
                     delete self.cons[args.PEER].chans[args.CHANNEL].vars[util.target.id];
-                    console.log(self.cons[args.PEER].chans[args.CHANNEL].vars[util.target.id]);
                     resolve();
                     return;
                 }
@@ -926,7 +941,6 @@
                         target: util.target.id,
                         id: args.VAR,
                     };
-                    console.log(self.cons[args.PEER].chans[args.CHANNEL].vars[util.target.id]);
                     resolve();
                 } else reject(`Variable \"${args.VAR}\" not found.`);
             });
@@ -956,11 +970,10 @@
                     lists: {},
                     vars: {},
                     new: false,
-                    value: null,
+                    value: "",
                 };
                 self.initializeDataChannel(chan, args.PEER, username);
-                console.log(self.cons[args.PEER].chans[String(args.CHANNEL)]);
-                console.log(`Manually opening channel  \"${args.CHANNEL}\" with peer \"${username}\"(${args.PEER})`);
+                console.log(`Opening data channel  \"${args.CHANNEL}\" with peer \"${username}\"(${args.PEER})`);
                 resolve();
             });
         }
