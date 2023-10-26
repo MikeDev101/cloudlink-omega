@@ -485,7 +485,10 @@ func opcode_MAKE_OFFER(message []byte, packet *Packet, client *Client, manager *
 	UnicastMessage(rxclient, JSONDump(&Packet{
 		Opcode:  Opcodes["MAKE_OFFER"],
 		Payload: packet.Payload,
-		Tx:      client.id.String(),
+		Tx: &PeerDetails{
+			Id:       client.id.String(),
+			Username: client.name,
+		},
 	}), nil)
 }
 
@@ -532,7 +535,10 @@ func opcode_MAKE_ANSWER(message []byte, packet *Packet, client *Client, manager 
 	UnicastMessage(rxclient, JSONDump(&Packet{
 		Opcode:  Opcodes["MAKE_ANSWER"],
 		Payload: packet.Payload,
-		Tx:      client.id.String(),
+		Tx: &PeerDetails{
+			Id:       client.id.String(),
+			Username: client.name,
+		},
 	}), nil)
 }
 
@@ -579,7 +585,10 @@ func opcode_ICE(message []byte, packet *Packet, client *Client, manager *Manager
 	UnicastMessage(rxclient, JSONDump(&Packet{
 		Opcode:  Opcodes["ICE"],
 		Payload: packet.Payload,
-		Tx:      client.id.String(),
+		Tx: &PeerDetails{
+			Id:       client.id.String(),
+			Username: client.name,
+		},
 	}), nil)
 }
 

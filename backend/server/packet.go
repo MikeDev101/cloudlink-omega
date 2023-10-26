@@ -14,10 +14,10 @@ type PeerDetails struct {
 }
 
 type Packet struct {
-	Opcode  int         `json:"opcode"`
-	Payload interface{} `json:"payload,omitempty"`
-	Tx      string      `json:"tx,omitempty"`
-	Rx      string      `json:"rx,omitempty"`
+	Opcode  int          `json:"opcode"`
+	Payload interface{}  `json:"payload,omitempty"`
+	Tx      *PeerDetails `json:"tx,omitempty"`
+	Rx      string       `json:"rx,omitempty"`
 }
 
 type PacketHost struct {
