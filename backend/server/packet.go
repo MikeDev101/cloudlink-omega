@@ -19,6 +19,15 @@ type ChannelDetails struct {
 	Ordered bool   `json:"ordered"`
 }
 
+type ChannelConfig struct {
+	Opcode  int `json:"opcode"`
+	Payload struct {
+		Id      int    `json:"id"`
+		Name    string `json:"name"`
+		Ordered bool   `json:"ordered"`
+	} `json:"payload"`
+}
+
 type Packet struct {
 	Opcode  int          `json:"opcode"`
 	Payload interface{}  `json:"payload,omitempty"`
@@ -64,11 +73,4 @@ type PeerConfig struct {
 		LobbyID  string `json:"lobby_id"`
 		Password string `json:"password"`
 	} `json:"payload"`
-}
-
-type ChannelConfig struct {
-	Opcode  int             `json:"opcode"`
-	Payload *ChannelDetails `json:"payload"`
-	Tx      *PeerDetails    `json:"tx,omitempty"`
-	Rx      string          `json:"rx,omitempty"`
 }

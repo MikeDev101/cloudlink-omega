@@ -633,7 +633,7 @@ func opcode_NEW_CHANNEL(message []byte, packet *Packet, client *Client, manager 
 	}
 
 	// Re-marshal the message using ChannelDetails struct
-	details := &ChannelDetails{}
+	details := &ChannelConfig{}
 	if err := json.Unmarshal(message, &details); err != nil {
 		go client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
@@ -644,21 +644,21 @@ func opcode_NEW_CHANNEL(message []byte, packet *Packet, client *Client, manager 
 	}
 
 	// Assert arguments
-	ChannelID, ok := client.assertInt(details.Id)
+	ChannelID, ok := client.assertInt(details.Payload.Id)
 	if !ok {
 		return
 	}
-	ChannelName, ok := client.assertString(details.Name)
+	ChannelName, ok := client.assertString(details.Payload.Name)
 	if !ok {
 		return
 	}
-	ChannelOrdered, ok := client.assertBool(details.Ordered)
+	ChannelOrdered, ok := client.assertBool(details.Payload.Ordered)
 	if !ok {
 		return
 	}
 
 	// Send NEW_CHANNEL message to peer
-	UnicastMessage(rxclient, JSONDump(&ChannelConfig{
+	UnicastMessage(rxclient, JSONDump(&Packet{
 		Opcode: Opcodes["NEW_CHANNEL"],
 		Payload: &ChannelDetails{
 			Id:      ChannelID,
