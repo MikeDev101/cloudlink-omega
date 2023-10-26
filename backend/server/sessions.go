@@ -89,7 +89,7 @@ func (manager *Manager) AbandonLobbies(client *Client) {
 
 			} else {
 				manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
-				lobby.Host = lobby.Peers[0]
+				lobby.Host = lobby.Peers[1]
 				manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 
 				// Update client state

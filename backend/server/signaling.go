@@ -47,6 +47,7 @@ var Opcodes = map[string]int{
 	"PASSWORD_FAIL":     33,
 	"PEER_INVALID":      34,
 	"NEW_CHANNEL":       35,
+	"DISCOVER":          36,
 }
 
 func NotifyPeersOfStateChange(eventType int, lobbyID string, manager *Manager, client *Client) {
@@ -86,6 +87,7 @@ func NotifyPeersOfStateChange(eventType int, lobbyID string, manager *Manager, c
 		// Get lobby object
 		manager.AcquireAccessLock(&manager.lobbiesMutex, "lobby object")
 		lobby := manager.lobbies[lobbyID]
+		host := lobby.Host
 		manager.FreeAccessLock(&manager.lobbiesMutex, "lobby object")
 
 		// Get client name and ID
@@ -103,11 +105,45 @@ func NotifyPeersOfStateChange(eventType int, lobbyID string, manager *Manager, c
 			},
 		}), nil)
 
+		// Send discovery
+		manager.BroadcastDiscovery(lobbyID, host, client)
+
 	default:
 		panic(
 			"[" + manager.Name + "] Unexpected eventType value! Expected NEW_HOST (" + strconv.Itoa(Opcodes["NEW_HOST"]) + ") or NEW_PEER (" + strconv.Itoa(Opcodes["NEW_PEER"]) + "), got " + strconv.Itoa(eventType),
 		)
 	}
+}
+
+// Loop through all peers in a lobby, notify peer (*Client) of all other peers ([]*Peer) while excluding host (*Client) and itself (*Client)
+func (manager *Manager) BroadcastDiscovery(lobbyID string, Host *Client, Peer *Client) {
+	// Get lobby peers
+	manager.AcquireAccessLock(&manager.lobbiesMutex, "lobby peers")
+	peers := manager.lobbies[lobbyID].Peers
+
+	// Loop through all other peers and return individual PeerDetails structs (exclude Host)
+	for _, tmpPeer := range excludeClient(Host, peers) {
+		UnicastMessage(Peer, JSONDump(&Packet{
+			Opcode: Opcodes["DISCOVER"],
+			Payload: &PeerDetails{
+				Id:       tmpPeer.id.String(),
+				Username: tmpPeer.name,
+			},
+		}), nil)
+	}
+	// Exit
+	manager.FreeAccessLock(&manager.lobbiesMutex, "lobby peers")
+}
+
+// Function to exclude a struct from an array of structs
+func excludeClient(exclusion *Client, clients []*Client) []*Client {
+	var result []*Client
+	for _, tmpClient := range clients {
+		if tmpClient != exclusion {
+			result = append(result, tmpClient)
+		}
+	}
+	return result
 }
 
 func (client *Client) CloseConnectionOnError(opcode int, message string, errorcode int) {

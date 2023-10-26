@@ -59,6 +59,7 @@
                 PASSWORD_FAIL: 33,
                 PEER_INVALID: 34,
                 NEW_CHANNEL: 35,
+                DISCOVER: 36,
             }
 
             this.blockIconURI =
@@ -429,18 +430,20 @@
             }
         }
 
-        initializeCon(con, peerUsername, peerUUID) {
+        initializeCon(con, peerUsername, peerUUID, inBandICE) {
             const self = this;
 
-            // Gather ICE candidates and send them to peer
-            con.onicecandidate = (e) => {
-                if (!e.candidate) return;
-                self.sendSignallingMessage(
-                    self.signalingOpcodes.ICE,
-                    e.candidate.toJSON(),
-                    peerUUID
-                )
-            };
+            if (!inBandICE) {
+                // Gather ICE candidates and send them to peer
+                con.onicecandidate = (e) => {
+                    if (!e.candidate) return;
+                    self.sendSignallingMessage(
+                        self.signalingOpcodes.ICE,
+                        e.candidate.toJSON(),
+                        peerUUID,
+                    )
+                }
+            }
 
             // Log ICE gathering events
             con.onicegatheringstatechange = (e) => {
@@ -503,6 +506,11 @@
                 let message = JSON.parse(e.data);
                 console.log('Got', message, `from peer \"${peerUsername}\" (${peerUUID}) in channel \"${thisChan.label}\"`);
                 switch (message.command) {
+
+                    case "list":
+                        break;
+
+                    // Handle messages
                     case "data":
                         // Store the message
                         let lists = self.cons[peerUUID].chans[String(thisChan.label)].lists;
@@ -619,6 +627,7 @@
                 payload: payload,
                 rx: rx
             };
+            console.log(`Sending message to server:`, message);
             self.websocket.send(JSON.stringify(message));
         }
 
@@ -659,7 +668,7 @@
 
                     // Create con connection object and data channel
                     con = new RTCPeerConnection(self.configuration);
-                    self.initializeCon(con, message.payload.username, message.payload.id);
+                    self.initializeCon(con, message.payload.username, message.payload.id, false);
                     chan = con.createDataChannel("default", {
                         ordered: true,
                         negotiated: true,
@@ -675,6 +684,7 @@
                         chan: chan,
                         lists: {},
                         vars: {},
+                        cloudlists: {},
                         new: false,
                         value: "",
                     };
@@ -701,7 +711,16 @@
 
                     // Create con connection object and data channel
                     con = new RTCPeerConnection(self.configuration);
-                    self.initializeCon(con, message.tx.username, message.tx.id);
+                    self.initializeCon(con, message.tx.username, message.tx.id, false);
+                    // Gather ICE candidates and send them to peer
+                    con.addEventListener("icecandidate", async(e) => {
+                        if (!e.candidate) return;
+                        self.sendSignallingMessage(
+                            self.signalingOpcodes.ICE,
+                            e.candidate.toJSON(),
+                            message.payload.username
+                        )
+                    });
                     chan = con.createDataChannel("default", {
                         ordered: true,
                         negotiated: true,
@@ -717,6 +736,7 @@
                         chan: chan,
                         lists: {},
                         vars: {},
+                        cloudlists: {},
                         new: false,
                         value: "",
                     };
