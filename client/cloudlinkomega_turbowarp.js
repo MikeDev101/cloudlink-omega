@@ -88,7 +88,7 @@
                     {
                         opcode: 'initialize',
                         blockType: 'command',
-                        text: 'Connect to game [UGI] as username [USERNAME]',
+                        text: 'Connect to game [UGI] as username [USERNAME] using server [SERVER]',
                         arguments: {
                             UGI: {
                                 type: 'string',
@@ -97,6 +97,10 @@
                             USERNAME: {
                                 type: 'string',
                                 defaultValue: 'Apple',
+                            },
+                            SERVER: {
+                                type: 'string',
+                                defaultValue: 'ws://127.0.0.1:3000/',
                             },
                         }
                     },
@@ -546,9 +550,9 @@
             }
         }
 
-        initializeWebSocket(ugi) {
+        initializeWebSocket(server, ugi) {
             const self = this;
-            const signalingServerURL = `ws://127.0.0.1:3000/signaling/${ugi}?v=0`;
+            const signalingServerURL = `${server}signaling/${ugi}?v=0`;
             console.log(`Connecting to server: ${signalingServerURL}`);
             self.websocket = new WebSocket(signalingServerURL);
 
@@ -796,7 +800,7 @@
             // Initialize WebSocket connection
             if (!self.is_signalling_connected()) {
                 self.username = args.USERNAME;
-                self.initializeWebSocket(encodeURI(args.UGI));
+                self.initializeWebSocket(args.SERVER, encodeURI(args.UGI));
                 return new Promise(r => {
                     self.websocket.addEventListener("open", r);
                     self.websocket.addEventListener("close", r);
