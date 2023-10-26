@@ -57,6 +57,7 @@
                 PASSWORD_ACK: 32,
                 PASSWORD_FAIL: 33,
                 PEER_INVALID: 34,
+                NEW_CHANNEL: 35,
             }
 
             this.blockIconURI =
@@ -325,11 +326,15 @@
                     {
                         opcode: 'newchan',
                         blockType: 'command',
-                        text: 'Open a new data channel named [CHANNEL] with peer [PEER] and make messages [CHANNELCONFIG]',
+                        text: 'Open a new data channel named [CHANNEL] with ID [ID] with peer [PEER] and make messages [CHANNELCONFIG]',
                         arguments: {
                             CHANNEL: {
                                 type: 'string',
                                 defaultValue: 'foobar',
+                            },
+                            ID: {
+                                type: 'number',
+                                defaultValue: 1,
                             },
                             PEER: {
                                 type: 'string',
@@ -433,11 +438,6 @@
                 console.warn(`Peer \"${peerUsername}\" (${peerUUID}) ICE error on URL \"`, e.url, "\": ", e.errorText);
             };
 
-            // Handle data channel events
-            con.ondatachannel = (event) => {
-                self.initializeDataChannel(event.channel, peerUUID, peerUsername);
-            };
-
             // Log connection state changes
             con.onconnectionstatechange = (e) => {
                 switch (con.connectionState) {
@@ -476,15 +476,6 @@
             thisChan.onopen = (e) => {
                 console.log(e);
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${thisChan.label}\" opened! Is this channel ordered: ${chan.ordered}, ID: ${chan.id}`);
-            
-                self.cons[peerUUID].chans[String(chan.label)] = {
-                    chan: thisChan,
-                    lists: {},
-                    vars: {},
-                    new: false,
-                    value: null,
-                };
-                console.log(self.cons[peerUUID].chans[String(chan.label)]);
             }
 
             thisChan.onmessage = (e) => {
@@ -624,7 +615,7 @@
         async handleSignalingMessage(message) {
             const self = this;
             // Placeholders
-            let offer, answer, con, chan, peerUUID, chanName = null;
+            let offer, answer, con, chan, peerUUID, peerUsername = null;
 
             // Handle various signaling messages and implement the negotiation process
             switch (message.opcode) {
@@ -659,20 +650,25 @@
                     // Create con connection object and data channel
                     con = new RTCPeerConnection(self.configuration);
                     self.initializeCon(con, message.payload.username, message.payload.id);
-                    chan = con.createDataChannel("default", { ordered: true });
+                    chan = con.createDataChannel("default", {
+                        ordered: true,
+                        negotiated: true,
+                        id: 0,
+                    });
                     self.cons[message.payload.id] = {
                         con: con,
                         chans: {},
                         uuid: message.payload.id,
                         username: message.payload.username,
                     }
-                    /*self.cons[message.payload.id].chans['default'] = {
+                    self.cons[message.payload.id].chans['default'] = {
                         chan: chan,
                         lists: {},
                         vars: {},
                         new: false,
                         value: null,
-                    };*/
+                    };
+                    self.initializeDataChannel(chan, message.payload.id, message.payload.username);
 
                     // Generate offer
                     offer = con.createOffer();
@@ -696,21 +692,25 @@
                     // Create con connection object and data channel
                     con = new RTCPeerConnection(self.configuration);
                     self.initializeCon(con, message.tx.username, message.tx.id);
-                    chan = con.createDataChannel("default", { ordered: true });
+                    chan = con.createDataChannel("default", {
+                        ordered: true,
+                        negotiated: true,
+                        id: 0,
+                    });
                     self.cons[message.tx.id] = {
                         con: con,
                         chans: {},
                         uuid: message.tx.id,
                         username: message.tx.username,
                     };
-                    
-                    /*self.cons[message.tx.id].chans['default'] = {
+                    self.cons[message.tx.id].chans['default'] = {
                         chan: chan,
                         lists: {},
                         vars: {},
                         new: false,
                         value: null,
-                    };*/
+                    };
+                    self.initializeDataChannel(chan, message.tx.id, message.tx.username);
 
                     // Configure remote description
                     await con.setRemoteDescription(offer);
@@ -743,6 +743,30 @@
                     if ((self.mode == "host") || (self.mode == "peer")) {
                         // Set ICE candidates from con
                         self.cons[message.tx.id].con.addIceCandidate(new RTCIceCandidate(message.payload));
+                    }
+                    break;
+                
+                case self.signalingOpcodes.NEW_CHANNEL:
+                    if ((self.mode == "host") || (self.mode == "peer")) {
+                        // Create channel
+                        peerUUID = message.tx.id;
+                        peerUsername = message.tx.username;
+
+                        console.log(peerUUID, peerUsername, message.payload, self.cons[peerUUID]);
+
+                        chan = self.cons[peerUUID].con.createDataChannel(message.payload.name, {
+                            ordered: message.payload.ordered,
+                            negotiated: true,
+                            id: message.payload.id,
+                        });
+                        self.cons[peerUUID].chans[message.payload.name] = {
+                            chan: chan,
+                            lists: {},
+                            vars: {},
+                            new: false,
+                            value: null,
+                        };
+                        self.initializeDataChannel(chan, peerUUID, peerUsername);
                     }
                     break;
             }
@@ -924,7 +948,13 @@
                     reject(`Channel \"${args.CHANNEL}\" already exists!`);
                     return;
                 };
-                let chan = self.cons[args.PEER].con.createDataChannel(String(args.CHANNEL), { ordered: (args.ORDERED == "1") });
+                let ordered = (args.ORDERED == "1");
+                self.sendSignallingMessage(self.signalingOpcodes.NEW_CHANNEL, {id: args.ID, ordered: ordered, name: String(args.CHANNEL)}, args.PEER);
+                let chan = self.cons[args.PEER].con.createDataChannel(String(args.CHANNEL), {
+                    ordered: ordered,
+                    negotiated: true,
+                    id: args.ID,
+                });
                 self.cons[args.PEER].chans[String(args.CHANNEL)] = {
                     chan: chan,
                     lists: {},

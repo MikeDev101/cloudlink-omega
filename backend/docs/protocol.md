@@ -75,6 +75,22 @@ This message is sent to a host when a peer wants to join their game.
 }
 ```
 
+### `NEW_CHANNEL` format
+This message is sent between peers to open a new data channel. Both peers must implement out-of-band channel negotiation.
+
+```js
+{
+	opcode: 35, // NEW_CHANNEL opcode 
+	payload: {
+		name: string, // Name of the new channel
+		id: int, // Agreed upon RTCDataChannel ID of the channel
+		ordered: boolean, // True - Use ordered channel, False - Use unordered channel
+	},
+	tx: string, // provided by the server only
+	rx: string, // provided by a client only
+}
+```
+
 ### `HOST_RECLAIM` format
 This message is sent when the server has made a peer the new host of a lobby.
 
@@ -127,8 +143,9 @@ This message is sent when the server has made a peer the new host of a lobby.
 | 30 | server <- client | KICK | Ask the server to remove a peer from a lobby. |
 | 31 | server -> client | PASSWORD_REQUIRED | Cannot join lobby because it requires a password. |
 | 32 | server -> client | PASSWORD_ACK | Joining lobby: password accepted. |
-| 32 | server -> client | PASSWORD_FAIL | Not joining lobby: password rejected. |
-| 33 | server -> client | PEER_INVALID | Message undeliverable: Peer not found. |
+| 33 | server -> client | PASSWORD_FAIL | Not joining lobby: password rejected. |
+| 34 | server -> client | PEER_INVALID | Message undeliverable: Peer not found. |
+| 35 | server <> client | NEW_CHANNEL | Ask peer to open a new data channel. |
 
 ## Connection handshake flow
 TODO

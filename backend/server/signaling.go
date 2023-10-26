@@ -46,6 +46,7 @@ var Opcodes = map[string]int{
 	"PASSWORD_ACK":      32,
 	"PASSWORD_FAIL":     33,
 	"PEER_INVALID":      34,
+	"NEW_CHANNEL":       35,
 }
 
 func NotifyPeersOfStateChange(eventType int, lobbyID string, manager *Manager, client *Client) {
@@ -592,6 +593,85 @@ func opcode_ICE(message []byte, packet *Packet, client *Client, manager *Manager
 	}), nil)
 }
 
+// Handle NEW_CHANNEL opcodes.
+func opcode_NEW_CHANNEL(message []byte, packet *Packet, client *Client, manager *Manager) {
+	// Require a username to be set
+	if ok := client.assertUsernameSet(); !ok {
+		return
+	}
+
+	// Assert recipient (rx) must be string type
+	var rx, ok = client.assertString(packet.Rx)
+	if !ok {
+		return
+	}
+
+	// Parse UUID
+	id, err := uuid.FromString(rx)
+	if err != nil {
+
+		// Tell the client the UUID was invalid and close the connection
+		go client.CloseConnectionOnError(
+			Opcodes["VIOLATION"],
+			"UUID parsing error: peer ID (rx) not a valid UUID format",
+			websocket.CloseUnsupportedData,
+		)
+		return
+	}
+
+	// Find client
+	manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+	var rxclient, exists = manager.clients[id]
+	manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
+	if !exists {
+
+		// Tell origin the recipient peer is invalid
+		go UnicastMessage(client, JSONDump(&Packet{
+			Opcode: Opcodes["PEER_INVALID"],
+		}), nil)
+		return
+	}
+
+	// Re-marshal the message using ChannelDetails struct
+	details := &ChannelDetails{}
+	if err := json.Unmarshal(message, &details); err != nil {
+		go client.CloseConnectionOnError(
+			Opcodes["VIOLATION"],
+			"Argument error: failed to parse payload keyvalue as JSON. Did you read the documentation?",
+			websocket.CloseUnsupportedData,
+		)
+		return
+	}
+
+	// Assert arguments
+	ChannelID, ok := client.assertInt(details.Id)
+	if !ok {
+		return
+	}
+	ChannelName, ok := client.assertString(details.Name)
+	if !ok {
+		return
+	}
+	ChannelOrdered, ok := client.assertBool(details.Ordered)
+	if !ok {
+		return
+	}
+
+	// Send NEW_CHANNEL message to peer
+	UnicastMessage(rxclient, JSONDump(&ChannelConfig{
+		Opcode: Opcodes["NEW_CHANNEL"],
+		Payload: &ChannelDetails{
+			Id:      ChannelID,
+			Name:    ChannelName,
+			Ordered: ChannelOrdered,
+		},
+		Tx: &PeerDetails{
+			Id:       client.id.String(),
+			Username: client.name,
+		},
+	}), nil)
+}
+
 // Handles incoming messages from the websocket server
 func SignalingOpcode(message []byte, manager *Manager, client *Client) {
 	// Parse incoming JSON
@@ -628,6 +708,9 @@ func SignalingOpcode(message []byte, manager *Manager, client *Client) {
 
 	case Opcodes["ICE"]:
 		opcode_ICE(message, &packet, client, manager)
+
+	case Opcodes["NEW_CHANNEL"]:
+		opcode_NEW_CHANNEL(message, &packet, client, manager)
 
 	default:
 		client.CloseConnectionOnError(
