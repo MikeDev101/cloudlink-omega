@@ -513,12 +513,27 @@
             
             chan.onopen = (e) => {
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${chan.label}\" opened! Is this channel ordered: ${chan.ordered}, ID: ${chan.id}`);
+
+                // Send discovery event if we're the game host and the channel is the default channel
+                if (this.mode == "host" && chan.label == "default") {
+
+                    // Gather all peers
+                    // TODO: convert all peers (besides ourselves) into {"id": (uuid), "username": (string)} values
+                    // TODO: send peer DISCOVERY command
+
+                }
+
             }
 
             chan.onmessage = async(e) => {
                 let message = JSON.parse(e.data);
                 console.log('Got', message, `from peer \"${peerUsername}\" (${peerUUID}) in channel \"${chan.label}\"`);
                 switch (message.command) {
+                    case "discovery":
+                        // TODO: if host, relay messages
+                        // TODO: if peer, handle offers/answers
+                        break;
+
                     case "newchan":
 
                         // Create channel
@@ -541,7 +556,7 @@
                         break;
                     
                     case "goodbye":
-                        // Close our connection
+                        // Close connection
                         await self.cons[peerUUID].con.close();
                         delete self.cons[peerUUID];
                         console.log(`Peer \"${peerUsername}\" (${peerUUID}) disconnected.`);
