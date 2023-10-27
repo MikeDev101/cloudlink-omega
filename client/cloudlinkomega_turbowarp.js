@@ -58,8 +58,7 @@
                 PASSWORD_ACK: 32,
                 PASSWORD_FAIL: 33,
                 PEER_INVALID: 34,
-                NEW_CHANNEL: 35,
-                DISCOVER: 36,
+                DISCOVER: 35,
             }
 
             this.blockIconURI =
@@ -348,15 +347,11 @@
                     {
                         opcode: 'newchan',
                         blockType: 'command',
-                        text: 'Open a new data channel named [CHANNEL] with ID [ID] with peer [PEER] and make messages [CHANNELCONFIG]',
+                        text: 'Open a new data channel named [CHANNEL] with peer [PEER] and make messages [CHANNELCONFIG]',
                         arguments: {
                             CHANNEL: {
                                 type: 'string',
                                 defaultValue: 'foobar',
-                            },
-                            ID: {
-                                type: 'number',
-                                defaultValue: 1,
                             },
                             PEER: {
                                 type: 'string',
@@ -506,7 +501,27 @@
                 let message = JSON.parse(e.data);
                 console.log('Got', message, `from peer \"${peerUsername}\" (${peerUUID}) in channel \"${thisChan.label}\"`);
                 switch (message.command) {
+                    case "newchan":
 
+                        // Create channel
+                        let tmpchan = self.cons[peerUUID].con.createDataChannel(message.payload.name, {
+                            ordered: message.payload.ordered,
+                            negotiated: true,
+                            id: message.payload.id,
+                        });
+                        self.initializeDataChannel(tmpchan, peerUUID, peerUsername);
+                        self.cons[peerUUID].chans[message.payload.name] = {
+                            chan: tmpchan,
+                            lists: {},
+                            vars: {},
+                            new: false,
+                            value: "",
+                        };
+
+                        // Increment new channel ID
+                        self.cons[peerUUID].nextchanid = (message.payload.id + 1);
+                        break;
+                        
                     case "list":
                         break;
 
@@ -669,17 +684,31 @@
                     // Create con connection object and data channel
                     con = new RTCPeerConnection(self.configuration);
                     self.initializeCon(con, message.payload.username, message.payload.id, false);
+
+                    // Gather ICE candidates and send them to peer
+                    con.addEventListener("icecandidate", (e) => {
+                        if (!e.candidate) return;
+                        self.sendSignallingMessage(
+                            self.signalingOpcodes.ICE,
+                            e.candidate.toJSON(),
+                            message.payload.id
+                        )
+                    });
+
                     chan = con.createDataChannel("default", {
                         ordered: true,
                         negotiated: true,
                         id: 0,
                     });
+
                     self.cons[message.payload.id] = {
                         con: con,
                         chans: {},
+                        nextchanid: 1,
                         uuid: message.payload.id,
                         username: message.payload.username,
-                    }
+                    };
+
                     self.cons[message.payload.id].chans['default'] = {
                         chan: chan,
                         lists: {},
@@ -688,6 +717,7 @@
                         new: false,
                         value: "",
                     };
+
                     self.initializeDataChannel(chan, message.payload.id, message.payload.username);
 
                     // Generate offer
@@ -712,26 +742,31 @@
                     // Create con connection object and data channel
                     con = new RTCPeerConnection(self.configuration);
                     self.initializeCon(con, message.tx.username, message.tx.id, false);
+
                     // Gather ICE candidates and send them to peer
-                    con.addEventListener("icecandidate", async(e) => {
+                    con.addEventListener("icecandidate", (e) => {
                         if (!e.candidate) return;
                         self.sendSignallingMessage(
                             self.signalingOpcodes.ICE,
                             e.candidate.toJSON(),
-                            message.payload.username
+                            message.tx.id
                         )
                     });
+
                     chan = con.createDataChannel("default", {
                         ordered: true,
                         negotiated: true,
                         id: 0,
                     });
+
                     self.cons[message.tx.id] = {
                         con: con,
+                        nextchanid: 1,
                         chans: {},
                         uuid: message.tx.id,
                         username: message.tx.username,
                     };
+
                     self.cons[message.tx.id].chans['default'] = {
                         chan: chan,
                         lists: {},
@@ -740,6 +775,7 @@
                         new: false,
                         value: "",
                     };
+
                     self.initializeDataChannel(chan, message.tx.id, message.tx.username);
 
                     // Configure remote description
@@ -773,27 +809,6 @@
                     if ((self.mode == "host") || (self.mode == "peer")) {
                         // Set ICE candidates from con
                         self.cons[message.tx.id].con.addIceCandidate(new RTCIceCandidate(message.payload));
-                    }
-                    break;
-                
-                case self.signalingOpcodes.NEW_CHANNEL:
-                    if ((self.mode == "host") || (self.mode == "peer")) {
-                        // Create channel
-                        peerUUID = message.tx.id;
-                        peerUsername = message.tx.username;
-                        chan = self.cons[peerUUID].con.createDataChannel(message.payload.name, {
-                            ordered: message.payload.ordered,
-                            negotiated: true,
-                            id: message.payload.id,
-                        });
-                        self.cons[peerUUID].chans[message.payload.name] = {
-                            chan: chan,
-                            lists: {},
-                            vars: {},
-                            new: false,
-                            value: "",
-                        };
-                        self.initializeDataChannel(chan, peerUUID, peerUsername);
                     }
                     break;
             }
@@ -917,6 +932,10 @@
         send(args, util) {
             const self = this;
             return new Promise((resolve, reject) => {
+                if (!self.cons[args.PEER]) {
+                    reject(`Peer ${args.PEER} invalid/not found!`);
+                    return;
+                };
                 let message = { command: "data", payload: args.DATA };
                 let chan = self.cons[args.PEER].chans[args.CHANNEL].chan;
                 chan.send(JSON.stringify(message));
@@ -950,6 +969,10 @@
         channel_data_store_in_variable(args, util) {
             const self = this;
             return new Promise((resolve, reject) => {
+                if (!self.cons[args.PEER]) {
+                    reject(`Peer ${args.PEER} invalid/not found!`);
+                    return;
+                };
 
                 // Remove this target from the object store
                 if (String(args.VAR) == "null") {
@@ -975,19 +998,26 @@
             return new Promise(async (resolve, reject) => {
                 if (!self.cons[args.PEER]) {
                     reject(`Peer ${args.PEER} invalid/not found!`);
-                    return
+                    return;
                 };
                 if (self.cons[args.PEER].chans.hasOwnProperty(String(args.CHANNEL))) {
                     reject(`Channel \"${args.CHANNEL}\" already exists!`);
                     return;
                 };
+                // Get ordered state
                 let ordered = (args.ORDERED == "1");
+
+                // Get next channel ID value
+                let chanid = self.cons[args.PEER].nextchanid;
+
+                // Get peer username
                 let username = self.cons[args.PEER].username;
-                self.sendSignallingMessage(self.signalingOpcodes.NEW_CHANNEL, {id: args.ID, ordered: ordered, name: String(args.CHANNEL)}, args.PEER);
+
+                // Create channel
                 let chan = self.cons[args.PEER].con.createDataChannel(String(args.CHANNEL), {
                     ordered: ordered,
                     negotiated: true,
-                    id: args.ID,
+                    id: chanid,
                 });
                 self.cons[args.PEER].chans[String(args.CHANNEL)] = {
                     chan: chan,
@@ -997,6 +1027,22 @@
                     value: "",
                 };
                 self.initializeDataChannel(chan, args.PEER, username);
+
+                // Tell peer to create a new data channel on their end
+                self.cons[args.PEER].chans['default'].chan.send(
+                    JSON.stringify({
+                        command: "newchan",
+                        payload: {
+                            id: chanid,
+                            ordered: ordered,
+                            name: String(args.CHANNEL)
+                        }
+                    })
+                );
+
+                // Increment new channel ID
+                self.cons[args.PEER].nextchanid += 1;
+
                 console.log(`Opening data channel  \"${args.CHANNEL}\" with peer \"${username}\"(${args.PEER})`);
                 resolve();
             });
@@ -1005,7 +1051,18 @@
         closechan(args, util) {
             const self = this;
             return new Promise(async (resolve, reject) => {
-                let con = self.cons[args.PEER].con;
+                if (!self.cons[args.PEER]) {
+                    reject(`Peer ${args.PEER} invalid/not found!`);
+                    return;
+                };
+                if (!self.cons[args.PEER].chans.hasOwnProperty(String(args.CHANNEL))) {
+                    reject(`Channel \"${args.CHANNEL}\" not found!`);
+                    return;
+                };
+                if (String(args.CHANNEL).toLowerCase() == "default") {
+                    reject(`Cannot destroy default channel! To close this connection, use the disconnect peer block.`);
+                    return;
+                };
                 let chan = self.cons[args.PEER].chans[String(args.CHANNEL)].chan;
                 
                 chan.close();

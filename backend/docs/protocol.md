@@ -145,8 +145,7 @@ This message is sent when the server has made a peer the new host of a lobby.
 | 32 | server -> client | PASSWORD_ACK | Joining lobby: password accepted. |
 | 33 | server -> client | PASSWORD_FAIL | Not joining lobby: password rejected. |
 | 34 | server -> client | PEER_INVALID | Message undeliverable: Peer not found. |
-| 35 | server <> client | NEW_CHANNEL | Ask peer to open a new data channel. |
-| 36 | server -> client | DISCOVER | Server will notify peer of other peers present. Used to negotiate an adhoc connection mode. |
+| 35 | server -> client | DISCOVER | Server will notify peer of other peers present. Used to negotiate an adhoc connection mode. |
 
 ## Connection handshake flow
 TODO

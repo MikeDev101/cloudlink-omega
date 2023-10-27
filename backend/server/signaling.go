@@ -67,7 +67,6 @@ func NotifyPeersOfStateChange(eventType int, lobbyID string, manager *Manager, c
 		lobby := manager.lobbies[lobbyID]
 		password_required := (lobby.Password != "")
 		max_peers := lobby.MaxPeers
-		manager.FreeAccessLock(&manager.lobbiesMutex, "lobby object, password requirement, and maximum peers")
 
 		// Broadcast to peers (but not to the host itself)
 		MulticastMessage(manager.clients, JSONDump(&PacketHost{
@@ -80,6 +79,8 @@ func NotifyPeersOfStateChange(eventType int, lobbyID string, manager *Manager, c
 				MaxPeers:         max_peers,
 			},
 		}), client)
+
+		manager.FreeAccessLock(&manager.lobbiesMutex, "lobby object, password requirement, and maximum peers")
 
 	// Notify host within the same lobby ID that there is a new peer
 	case Opcodes["NEW_PEER"]:

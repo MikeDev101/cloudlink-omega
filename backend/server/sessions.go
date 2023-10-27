@@ -36,6 +36,7 @@ func (client *Client) MessageHandler(manager *Manager) {
 		if _, message, err = client.connection.ReadMessage(); err != nil {
 			break
 		}
+		log.Printf("[%s] Client %s RX: %s", client.manager.Name, client.id, message)
 		SignalingOpcode(message, manager, client)
 	}
 }
