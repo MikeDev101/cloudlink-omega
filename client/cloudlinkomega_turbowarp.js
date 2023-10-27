@@ -592,7 +592,9 @@
             chan.onerror = (e) => {
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${chan.label}\" error!`, e.error);
                 // Destroy channel reference
-                delete self.cons[peerUUID].chans[String(chan.label)];
+                if (self.cons[peerUUID]) {
+                    delete self.cons[peerUUID].chans[String(chan.label)];
+                }
             }
             chan.onclosing = (e) => {
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${chan.label}\" closing...`);
@@ -600,7 +602,9 @@
             chan.onclose = (e) => {
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${chan.label}\" closed!`);
                 // Destroy channel reference
-                delete self.cons[peerUUID].chans[String(chan.label)];
+                if (self.cons[peerUUID]) {
+                    delete self.cons[peerUUID].chans[String(chan.label)];
+                }
             }
         }
 
@@ -1147,6 +1151,7 @@
                 // Get RTCPeerConnection object
                 let con = self.cons[args.PEER].con;
 
+                /*
                 // Get default channel object
                 let chan = self.cons[args.PEER].chans['default'].chan;
 
@@ -1155,12 +1160,13 @@
                 chan.send(JSON.stringify({command: "goodbye"}));
                 chan.bufferedAmountLowThreshold = before;
                 await new Promise(r => chan.addEventListener("bufferedamountlow", r));
+                */
                 
                 // Close the connection
-                console.log(`Closing connection to peer \"${username}\" (${args.PEER})...`);
+                let tmp = String(args.PEER);
+                console.log(`Closing connection to peer \"${username}\" (${tmp})...`);
                 con.close();
-                await new Promise(r => con.addEventListener("close", r));
-                console.log(`Closed connection with peer \"${username}\" (${peer}).`);
+                delete self.cons[tmp];
                 resolve();
             });
         }
@@ -1182,7 +1188,7 @@
                     // Get RTCPeerConnection object
                     let con = self.cons[peer].con;
 
-                    // Get default channel object
+                    /*// Get default channel object
                     let chan = self.cons[peer].chans['default'].chan;
 
                     // Tell peer we are going away and wait for the message to send
@@ -1191,18 +1197,19 @@
                     chan.bufferedAmountLowThreshold = before;
                     await new Promise(r => chan.addEventListener("bufferedamountlow", r));
                     
-                    // Close the connection
-                    console.log(`Closing connection with peer \"${username}\" (${peer})...`);
+                    // Close the connection*/
+                    let tmp = String(peer);
+                    console.log(`Closing connection with peer \"${username}\" (${tmp})`);
                     con.close();
-                    await new Promise(r => con.addEventListener("close", r));
-                    console.log(`Closed connection with peer \"${username}\" (${peer}).`);
+                    delete self.cons[tmp];
+                    // await new Promise(r => con.addEventListener("close", r));
                 }
 
                 // Close connection to game server
                 console.log(`Closing connection to game server...`);
                 self.websocket.close();
-                await new Promise(r => self.websocket.addEventListener("close", r));
-                console.log(`Closed connection to game server.`);
+                // await new Promise(r => self.websocket.addEventListener("close", r));
+                // console.log(`Closed connection to game server.`);
                 resolve();
             });
         }

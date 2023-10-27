@@ -1,2 +1,3 @@
-* Fix signalling server's lobby ownership transfer system
-* Implement Ad-Hoc WebRTC negotiation system
+* bugfix dangling objects when peer disconnects
+* bugfix signaller panics caused by bugged lobby ownership transfer system
+* Implement meshed data channel negotiation system
