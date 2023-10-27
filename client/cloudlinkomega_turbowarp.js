@@ -465,53 +465,46 @@
                 }
             }
 
-            // Log ICE gathering events
-            con.onicegatheringstatechange = (e) => {
-                switch (e.target.iceGatheringState) {
-                    case "gathering":
-                        console.log(`Peer \"${peerUsername}\" (${peerUUID}) ICE is now gathering candidates...`);
-                        break;
-                    case "complete":
-                        console.log(`Peer \"${peerUsername}\" (${peerUUID}) ICE has finished gathering candidates!`)
-                        break;
-                }
-            };
-
-            // handle error
-            con.onicecandidateerror = (e) => {
-                console.warn(`Peer \"${peerUsername}\" (${peerUUID}) ICE error on URL \"`, e.url, "\": ", e.errorText);
-            };
-
             // Log connection state changes
-            con.onconnectionstatechange = (e) => {
-                switch (con.connectionState) {
-                    case "new":
-                        break;
-                    case "connecting":
-                        console.log(`Peer \"${peerUsername}\" (${peerUUID}) connecting...`);
-                        break;
-                    case "connected":
-                        console.log(`Peer \"${peerUsername}\" (${peerUUID}) connected!`);
+            con.onsignalingstatechange = (e) => {
+                switch (con.signalingState) {
+                    case "stable":
+                        console.log(`Peer \"${peerUsername}\" (${peerUUID}) connected.`);
                         self.newestPeer = { [String(peerUsername)]: String(peerUUID) };
                         self.runtime.startHats("cloudlinkomega_on_new_peer");
                         break;
-                    case "closing":
-                        console.log(`Peer \"${peerUsername}\" (${peerUUID}) disconnecting...`);
-                        delete self.cons[peerUUID];
-                        break;
+                    
                     case "closed":
                         console.log(`Peer \"${peerUsername}\" (${peerUUID}) disconnected.`);
-                        delete self.cons[peerUUID];
-                        break;
-                    case "failed":
-                        console.warn(`Peer \"${peerUsername}\" (${peerUUID}) failed!`);
-                        delete self.cons[peerUUID];
-                        break;
-                    default:
-                        console.error(`Peer \"${peerUsername}\" (${peerUUID}) unknown!`);
-                        delete self.cons[peerUUID];
+                        // Destroy peer reference
+                        if (self.cons[peerUUID]) {
+                            delete self.cons[peerUUID];
+                        }
                         break;
                 };
+            };
+
+            con.onsignalingstatechange = (e) => {
+                switch (con.signalingState) {
+                    case "new": break;
+                    case "connecting": break;
+                    case "connected": break;
+                    case "closing": break;
+                    case "failed":
+                        console.log(`Peer \"${peerUsername}\" (${peerUUID}) disconnected (Connection lost or failed).`);
+                        // Destroy peer reference
+                        if (self.cons[peerUUID]) {
+                            delete self.cons[peerUUID];
+                        }
+                        break;
+                    case "closed":
+                        console.log(`Peer \"${peerUsername}\" (${peerUUID}) disconnected (Remote closure).`);
+                        // Destroy peer reference
+                        if (self.cons[peerUUID]) {
+                            delete self.cons[peerUUID];
+                        }
+                        break;
+                }
             };
         }
 
@@ -522,7 +515,7 @@
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${chan.label}\" opened! Is this channel ordered: ${chan.ordered}, ID: ${chan.id}`);
             }
 
-            chan.onmessage = (e) => {
+            chan.onmessage = async(e) => {
                 let message = JSON.parse(e.data);
                 console.log('Got', message, `from peer \"${peerUsername}\" (${peerUUID}) in channel \"${chan.label}\"`);
                 switch (message.command) {
@@ -548,9 +541,10 @@
                         break;
                     
                     case "goodbye":
-                        console.log(`Peer \"${peerUsername}\" (${peerUUID}) is going away. Goodbye!`);
                         // Close our connection
-                        self.cons[peerUUID].con.close();
+                        await self.cons[peerUUID].con.close();
+                        delete self.cons[peerUUID];
+                        console.log(`Peer \"${peerUsername}\" (${peerUUID}) disconnected.`);
                         break;
 
                     case "list":
@@ -592,17 +586,21 @@
             chan.onerror = (e) => {
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${chan.label}\" error!`, e.error);
                 // Destroy channel reference
-                if (self.cons[peerUUID]) {
+                if (self.cons[peerUUID] && self.cons[peerUUID].chans[String(chan.label)]) {
                     delete self.cons[peerUUID].chans[String(chan.label)];
                 }
             }
             chan.onclosing = (e) => {
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${chan.label}\" closing...`);
+                // Destroy channel reference
+                if (self.cons[peerUUID] && self.cons[peerUUID].chans[String(chan.label)]) {
+                    delete self.cons[peerUUID].chans[String(chan.label)];
+                }
             }
             chan.onclose = (e) => {
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${chan.label}\" closed!`);
                 // Destroy channel reference
-                if (self.cons[peerUUID]) {
+                if (self.cons[peerUUID] && self.cons[peerUUID].chans[String(chan.label)]) {
                     delete self.cons[peerUUID].chans[String(chan.label)];
                 }
             }
@@ -626,13 +624,15 @@
 
             self.websocket.onmessage = (event) => {
                 let message = JSON.parse(event.data);
-                console.log(`Got new message from server:`, message);
                 self.handleSignalingMessage(message);
             };
 
             self.websocket.onclose = () => {
                 console.log(`Disconnected from server!`);
                 self.websocket = null;
+                self.uuid = null;
+                self.username = null;
+                self.mode = null;
             }
         }
 
@@ -677,7 +677,6 @@
                 payload: payload,
                 rx: rx
             };
-            console.log(`Sending message to server:`, message);
             self.websocket.send(JSON.stringify(message));
         }
 
@@ -984,7 +983,6 @@
 
                 // If we want to wait for the message to send, get the current buffer size
                 if (args.WAIT) {
-                    console.log("Sending", message, `to peer \"${self.cons[args.PEER].username}\" (${args.PEER}) using channel \"${args.CHANNEL}\"...`);
                     before = chan.bufferedAmount;
                 }
 
@@ -995,8 +993,7 @@
                     chan.bufferedAmountLowThreshold = before;
                     await new Promise(r => chan.addEventListener("bufferedamountlow", r));
                 }
-
-                console.log("Sent", message, `to peer \"${self.cons[args.PEER].username}\" (${args.PEER}) using channel \"${args.CHANNEL}\"!`);
+                console.log('Sent', message, `to peer \"${peerUsername}\" (${peerUUID}) in channel \"${chan.label}\"`);
                 resolve();
             })
         }
@@ -1103,7 +1100,6 @@
 
                 // Increment new channel ID
                 self.cons[args.PEER].nextchanid += 1;
-                console.log(`Opening data channel \"${args.CHANNEL}\" with peer \"${username}\" (${args.PEER})`);
                 resolve();
             });
         }
@@ -1123,14 +1119,11 @@
                     reject(`Cannot destroy default channel! To close this connection, use the disconnect peer block.`);
                     return;
                 };
-                // Get peer username
-                let username = self.cons[args.PEER].username;
 
                 // Get channel object
                 let chan = self.cons[args.PEER].chans[String(args.CHANNEL)].chan;
 
                 // Close the channel and wait for it to close
-                console.log(`Closing data channel \"${args.CHANNEL}\" with peer \"${username}\" (${args.PEER})`);
                 chan.close();
                 await new Promise(e => chan.addEventListener("close", e));
                 resolve();
@@ -1144,14 +1137,10 @@
                     reject(`Peer ${args.PEER} invalid/not found!`);
                     return;
                 };
-                
-                // Get peer username
-                let username = self.cons[args.PEER].username;
 
                 // Get RTCPeerConnection object
                 let con = self.cons[args.PEER].con;
-
-                /*
+                
                 // Get default channel object
                 let chan = self.cons[args.PEER].chans['default'].chan;
 
@@ -1160,12 +1149,10 @@
                 chan.send(JSON.stringify({command: "goodbye"}));
                 chan.bufferedAmountLowThreshold = before;
                 await new Promise(r => chan.addEventListener("bufferedamountlow", r));
-                */
-                
+
                 // Close the connection
                 let tmp = String(args.PEER);
-                console.log(`Closing connection to peer \"${username}\" (${tmp})...`);
-                con.close();
+                await con.close();
                 delete self.cons[tmp];
                 resolve();
             });
@@ -1182,13 +1169,10 @@
                 // Gracefully close all peer connections
                 for (const peer in self.cons) {
 
-                    // Get peer username
-                    let username = self.cons[peer].username;
-
                     // Get RTCPeerConnection object
                     let con = self.cons[peer].con;
 
-                    /*// Get default channel object
+                    // Get default channel object
                     let chan = self.cons[peer].chans['default'].chan;
 
                     // Tell peer we are going away and wait for the message to send
@@ -1197,19 +1181,14 @@
                     chan.bufferedAmountLowThreshold = before;
                     await new Promise(r => chan.addEventListener("bufferedamountlow", r));
                     
-                    // Close the connection*/
+                    // Close the connection
                     let tmp = String(peer);
-                    console.log(`Closing connection with peer \"${username}\" (${tmp})`);
-                    con.close();
+                    await con.close();
                     delete self.cons[tmp];
-                    // await new Promise(r => con.addEventListener("close", r));
                 }
 
                 // Close connection to game server
-                console.log(`Closing connection to game server...`);
                 self.websocket.close();
-                // await new Promise(r => self.websocket.addEventListener("close", r));
-                // console.log(`Closed connection to game server.`);
                 resolve();
             });
         }
