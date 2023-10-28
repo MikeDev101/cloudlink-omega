@@ -450,45 +450,23 @@
             }
         }
 
-        initializeCon(con, peerUsername, peerUUID, inBandICE) {
+        initializeCon(con, peerUsername, peerUUID) {
             const self = this;
-
-            if (!inBandICE) {
-                // Gather ICE candidates and send them to peer
-                con.onicecandidate = (e) => {
-                    if (!e.candidate) return;
-                    self.sendSignallingMessage(
-                        self.signalingOpcodes.ICE,
-                        e.candidate.toJSON(),
-                        peerUUID,
-                    )
-                }
-            }
 
             // Log connection state changes
             con.onsignalingstatechange = (e) => {
                 switch (con.signalingState) {
-                    case "stable":
+                    case "new": break;
+                    case "connecting": break;
+                    case "stable": 
                         console.log(`Peer \"${peerUsername}\" (${peerUUID}) connected.`);
-                        self.newestPeer = { [String(peerUsername)]: String(peerUUID) };
+                        self.newestPeer = {
+                            id: String(peerUUID),
+                            username: String(peerUsername),
+                        };
                         self.runtime.startHats("cloudlinkomega_on_new_peer");
                         break;
                     
-                    case "closed":
-                        console.log(`Peer \"${peerUsername}\" (${peerUUID}) disconnected.`);
-                        // Destroy peer reference
-                        if (self.cons[peerUUID]) {
-                            delete self.cons[peerUUID];
-                        }
-                        break;
-                };
-            };
-
-            con.onsignalingstatechange = (e) => {
-                switch (con.signalingState) {
-                    case "new": break;
-                    case "connecting": break;
-                    case "connected": break;
                     case "closing": break;
                     case "failed":
                         console.log(`Peer \"${peerUsername}\" (${peerUUID}) disconnected (Connection lost or failed).`);
@@ -510,39 +488,310 @@
 
         initializeDataChannel(chan, peerUUID, peerUsername) {
             const self = this;
-            
             chan.onopen = (e) => {
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${chan.label}\" opened! Is this channel ordered: ${chan.ordered}, ID: ${chan.id}`);
 
-                // Send discovery event if we're the game host and the channel is the default channel
+                // If we are the lobby host, find all other peers and notify newest peer of other peers existing (DISCOVERY protocol)
                 if (this.mode == "host" && chan.label == "default") {
 
                     // Gather all peers
-                    // TODO: convert all peers (besides ourselves) into {"id": (uuid), "username": (string)} values
-                    // TODO: send peer DISCOVERY command
+                    for (const uuid in self.cons) {
 
+                        // Check if peer is valid, exclude ourselves and the new peer we have added
+                        if (self.cons.hasOwnProperty(uuid))  {
+
+                            // Exclude ourselves and origin
+                            if (uuid == peerUUID) continue;
+                            if (uuid == self.uuid) continue;
+
+                            // Send discovery
+                            chan.send(JSON.stringify({
+                                command: "discovery",
+                                payload: {
+                                    id: String(uuid),
+                                    username: String(self.cons[uuid].username),
+                                },
+                            }));
+                        };
+                    };
                 }
-
             }
-
             chan.onmessage = async(e) => {
                 let message = JSON.parse(e.data);
-                console.log('Got', message, `from peer \"${peerUsername}\" (${peerUUID}) in channel \"${chan.label}\"`);
+                let peerCon, peerChan, variables, lists, offer, answer = null;
+
+                // Handle channel commands
                 switch (message.command) {
+
+                    // If peer, accept the peer from discovery message provided by the host. Ask the host to notify the discovered peer to make an offer and relay it back to us.
                     case "discovery":
-                        // TODO: if host, relay messages
-                        // TODO: if peer, handle offers/answers
+                        if (this.mode != "peer") return;
+                        console.log(`Host ${peerUsername} (${peerUUID}) wants us to discover new peer ${message.payload.username} (${message.payload.id}), requesting offer`);
+
+                        chan.send(JSON.stringify({
+                            command: "discovery_accept",
+                            payload: {
+                                id: message.payload.id,
+                                username: message.payload.username,
+                            },
+                        }));
+
                         break;
 
-                    case "newchan":
+                    // If host, tell the discovered peer to make an offer
+                    case "discovery_accept":
+                        if (this.mode != "host") return;
+                        console.log(`Peer ${peerUsername} (${peerUUID}) accepted new peer ${message.payload.username} (${message.payload.id}) discovery, requesting offer`);
+                        
+                        // Get discovered peer
+                        peerChan = self.cons[message.payload.id].chans['default'].chan;
 
-                        // Create channel
+                        // Relay request to discovered peer
+                        peerChan.send(JSON.stringify({
+                            command: "discovery_init",
+                            payload: {
+                                id: peerUUID,
+                                username: peerUsername,
+                            },
+                        }));
+
+                        break;
+                    
+                    // If peer, create new connection and relay the request back to original peer with the host as a relay
+                    case "discovery_init":
+                        if (this.mode != "peer") return;
+                        console.log(`Host ${peerUsername} (${peerUUID}) is negotiating new peer ${message.payload.username} (${message.payload.id}) discovery, making offer`);
+
+                        // Create new connection object
+                        peerCon = new RTCPeerConnection(self.configuration);
+                        self.cons[message.payload.id] = {
+                            con: peerCon,
+                            chans: {},
+                            nextchanid: 1,
+                            uuid: message.payload.id,
+                            username: message.payload.username,
+                        };
+                        self.initializeCon(peerCon, message.payload.username, message.payload.id);
+
+                        // Gather ICE candidates and send them to peer
+                        peerCon.addEventListener("icecandidate", (e) => {
+                            if (!e.candidate) return;
+
+                            // Send the ICE offer to the host for relaying
+                            chan.send(JSON.stringify({
+                                command: "discovery_ice",
+                                payload: e.candidate.toJSON(),
+                                rx: {
+                                    id: message.payload.id,
+                                    username: message.payload.username,
+                                },
+                            }))
+                        
+                        });
+
+                        // Create new data channel
+                        peerChan = peerCon.createDataChannel("default", {
+                            ordered: true,
+                            negotiated: true,
+                            id: 0,
+                        });
+                        self.cons[message.payload.id].chans['default'] = {
+                            chan: peerChan,
+                            lists: {},
+                            vars: {},
+                            cloudlists: {},
+                            new: false,
+                            value: "",
+                        };
+                        self.initializeDataChannel(peerChan, message.payload.id, message.payload.username);
+
+                        // Generate offer
+                        offer = await peerCon.createOffer();
+
+                        // Set local description
+                        await peerCon.setLocalDescription(offer);
+
+                        // Send offer to the host, host will relay offer to peer
+                        chan.send(JSON.stringify({
+                            command: "discovery_make_offer",
+                            payload: peerCon.localDescription,
+                            rx: {
+                                id: message.payload.id,
+                                username: message.payload.username,
+                            },
+                        }));
+
+                        break;
+                    
+                    // If host, relay ICE candidate to peer. If peer, read the ICE candidate and add it to newly discovered peer connection.
+                    case "discovery_ice":
+
+                        if (this.mode == "host") {
+                            console.log(`Peer ${peerUsername} (${peerUUID}) is offering ICE to peer ${message.rx.username} (${message.rx.id}), relaying ICE`);
+
+                            // Get discovered peer
+                            peerChan = self.cons[message.rx.id].chans['default'].chan;
+
+                            // Relay request to discovered peer
+                            peerChan.send(JSON.stringify({
+                                command: "discovery_ice",
+                                payload: message.payload,
+                                tx: {
+                                    id: peerUUID,
+                                    username: peerUsername,
+                                },
+                            }));
+                        
+                        }
+                        else if (this.mode == "peer") {
+                            console.log(`Host ${peerUsername} (${peerUUID}) returned ICE offer from peer ${message.tx.username} (${message.tx.id}), configuring ICE`);
+
+                            // Get discovered peer
+                            peerCon = self.cons[message.tx.id].con;
+
+                            // Set ICE candidate
+                            peerCon.addIceCandidate(new RTCIceCandidate(message.payload));
+                        }
+
+                        break;
+                    
+                    // If host, relay the offer. If peer, create our own peer connection and send back answer.
+                    case "discovery_make_offer":
+
+                        // Relay message
+                        if (this.mode == "host")  {
+                            console.log(`Peer ${peerUsername} (${peerUUID}) made offer to ${message.rx.username} (${message.rx.id}), relaying offer`);
+
+                            // Get peer
+                            peerChan = self.cons[message.rx.id].chans['default'].chan;
+
+                            // Relay offer to peer
+                            peerChan.send(JSON.stringify({
+                                command: "discovery_make_offer",
+                                payload: message.payload,
+                                tx: {
+                                    id: peerUUID,
+                                    username: peerUsername,
+                                },
+                            }));
+                        }
+
+                        // Create connection, make an answer to offer
+                        else if (this.mode == "peer") {
+                            console.log(`Host ${peerUsername} (${peerUUID}) returned offer from ${message.tx.username} (${message.tx.id}), creating answer`);
+
+                            // Create new connection object
+                            peerCon = new RTCPeerConnection(self.configuration);
+                            self.cons[message.tx.id] = {
+                                con: peerCon,
+                                chans: {},
+                                nextchanid: 1,
+                                uuid: message.tx.id,
+                                username: message.tx.username,
+                            };
+                            self.initializeCon(peerCon, message.tx.username, message.tx.id);
+
+                            // Gather ICE candidates and send them to peer
+                            peerCon.addEventListener("icecandidate", (e) => {
+                                if (!e.candidate) return;
+
+                                // Send the ICE offer to the host for relaying
+                                chan.send(JSON.stringify({
+                                    command: "discovery_ice",
+                                    payload: e.candidate.toJSON(),
+                                    rx: {
+                                        id: message.tx.id,
+                                        username: message.tx.username,
+                                    },
+                                }))
+                            
+                            });
+
+                            // Create new data channel
+                            peerChan = peerCon.createDataChannel("default", {
+                                ordered: true,
+                                negotiated: true,
+                                id: 0,
+                            });
+                            self.cons[message.tx.id].chans['default'] = {
+                                chan: peerChan,
+                                lists: {},
+                                vars: {},
+                                cloudlists: {},
+                                new: false,
+                                value: "",
+                            };
+                            self.initializeDataChannel(peerChan, message.tx.id, message.tx.username);
+
+                            // Get offer
+                            offer = new RTCSessionDescription(message.payload);
+
+                            // Set remote description
+                            await peerCon.setRemoteDescription(offer);
+
+                            // Generate answer
+                            answer = await peerCon.createAnswer();
+
+                            // Set local description
+                            await peerCon.setLocalDescription(answer);
+
+                            // Send answer to the host, host will relay answer to peer
+                            chan.send(JSON.stringify({
+                                command: "discovery_make_answer",
+                                payload: peerCon.localDescription,
+                                rx: {
+                                    id: message.tx.id,
+                                    username: message.tx.username,
+                                },
+                            }));
+                        }
+
+                        break;
+                    
+                    // If host, relay the answer. If peer, configure our connection using the answer.
+                    case "discovery_make_answer":
+
+                        // Relay message
+                        if (this.mode == "host")  {
+                            console.log(`Peer ${peerUsername} (${peerUUID}) made answer to ${message.rx.username} (${message.rx.id}), relaying answer`);
+
+                            // Get peer
+                            peerChan = self.cons[message.rx.id].chans['default'].chan;
+
+                            // Relay offer to peer
+                            peerChan.send(JSON.stringify({
+                                command: "discovery_make_answer",
+                                payload: message.payload,
+                                tx: {
+                                    id: peerUUID,
+                                    username: peerUsername,
+                                },
+                            }));
+                        }
+
+                        // Configure connection using answer from peer
+                        else if (this.mode == "peer") {
+                            console.log(`Host ${peerUsername} (${peerUUID}) returned answer from ${message.tx.username} (${message.tx.id}), initializing connection`);
+                            answer = new RTCSessionDescription(message.payload);
+
+                            peerCon = self.cons[message.tx.id].con;
+
+                            // Set local description
+                            await peerCon.setRemoteDescription(answer);
+                        }
+
+                        break;
+                    
+                    // Create channel
+                    case "newchan":
                         let tmpchan = self.cons[peerUUID].con.createDataChannel(message.payload.name, {
                             ordered: message.payload.ordered,
                             negotiated: true,
                             id: message.payload.id,
                         });
+
                         self.initializeDataChannel(tmpchan, peerUUID, peerUsername);
+
                         self.cons[peerUUID].chans[message.payload.name] = {
                             chan: tmpchan,
                             lists: {},
@@ -554,22 +803,25 @@
                         // Increment new channel ID
                         self.cons[peerUUID].nextchanid = (message.payload.id + 1);
                         break;
-                    
+                        
+                    // Close connection
                     case "goodbye":
-                        // Close connection
                         await self.cons[peerUUID].con.close();
                         delete self.cons[peerUUID];
                         console.log(`Peer \"${peerUsername}\" (${peerUUID}) disconnected.`);
                         break;
-
+                    
+                    // TODO: implement sending cloud lists
                     case "list":
                         break;
 
                     // Handle messages
                     case "data":
+                        console.log('Got new data ', message.payload, ` from peer \"${peerUsername}\" (${peerUUID}) in channel \"${chan.label}\"`);
+
                         // Store the message
-                        let lists = self.cons[peerUUID].chans[String(chan.label)].lists;
-                        let variables = self.cons[peerUUID].chans[String(chan.label)].vars;
+                        lists = self.cons[peerUUID].chans[String(chan.label)].lists;
+                        variables = self.cons[peerUUID].chans[String(chan.label)].vars;
 
                         // Update lists
                         for (const key in lists) {
@@ -648,6 +900,7 @@
                 self.uuid = null;
                 self.username = null;
                 self.mode = null;
+                self.newestPeer = {};
             }
         }
 
@@ -732,7 +985,7 @@
 
                     // Create con connection object and data channel
                     con = new RTCPeerConnection(self.configuration);
-                    self.initializeCon(con, message.payload.username, message.payload.id, false);
+                    self.initializeCon(con, message.payload.username, message.payload.id);
 
                     // Gather ICE candidates and send them to peer
                     con.addEventListener("icecandidate", (e) => {
@@ -790,7 +1043,7 @@
 
                     // Create con connection object and data channel
                     con = new RTCPeerConnection(self.configuration);
-                    self.initializeCon(con, message.tx.username, message.tx.id, false);
+                    self.initializeCon(con, message.tx.username, message.tx.id);
 
                     // Gather ICE candidates and send them to peer
                     con.addEventListener("icecandidate", (e) => {
@@ -921,10 +1174,13 @@
 
         get_peers(args, util) {
             const self = this;
-            let peers = {};
+            let peers = [];
             for (const uuid in self.cons) {
                 if (self.cons.hasOwnProperty(uuid)) {
-                    peers[String(self.cons[uuid].username)] = String(uuid);
+                    peers.push({
+                        id: String(uuid),
+                        username: String(self.cons[uuid].username),
+                    });
                 };
             };
             return self.makeValueScratchSafe(peers);
@@ -995,6 +1251,7 @@
                     payload: args.DATA
                 };
                 let chan = self.cons[args.PEER].chans[args.CHANNEL].chan;
+                let username = self.cons[args.PEER].username;
 
                 // If we want to wait for the message to send, get the current buffer size
                 if (args.WAIT) {
@@ -1008,7 +1265,7 @@
                     chan.bufferedAmountLowThreshold = before;
                     await new Promise(r => chan.addEventListener("bufferedamountlow", r));
                 }
-                console.log('Sent', message, `to peer \"${peerUsername}\" (${peerUUID}) in channel \"${chan.label}\"`);
+                console.log('Sent', message, `to peer \"${username}\" (${args.PEER}) in channel \"${chan.label}\"`);
                 resolve();
             })
         }
