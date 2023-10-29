@@ -7,16 +7,14 @@
             this.uuid = null;
             this.username = null;
             this.websocket = null;
+            this.keepalive = null;
             this.cons = {};
             this.mode = null;
             this.newestPeer = {};
             this.configuration = {
                 iceServers: [
-                    // Omega STUN/TURN servers
                     { urls: 'stun:stun.mikedev101.cc:3478' },
                     { urls: 'turn:stun.mikedev101.cc:3478', username: 'foobar', credential: 'foobar' },
-
-                    // Google STUN server in case Omega STUN server is unavailable/overloaded
                     { urls: 'stun:stun.l.google.com:19302' },
                 ]
             }
@@ -62,6 +60,7 @@
             }
         }
 
+        // Define blocks used in the extension
         getInfo() {
             return {
                 id: 'dumb',
@@ -425,7 +424,8 @@
                 }
             };
         }
-
+        
+        // Makes a value safe for the Scratch VM to use.
         makeValueScratchSafe(data) {
             if (typeof data == "object") {
                 try {
@@ -436,6 +436,68 @@
             } else {
                 return String(data);
             }
+        }
+
+        // Provide a common function for creating a WebRTC peer connection object.
+        createConnectionObject(peerUUID, peerUsername) {
+            const self = this;
+            let con = new RTCPeerConnection(self.configuration);
+            self.initializeCon(con, peerUsername, peerUUID);
+            self.cons[peerUUID] = {
+                con: con,
+                chans: {},
+                nextchanid: 1,
+                uuid: peerUUID,
+                username: peerUsername,
+            };
+            return self.getConnectionObject(peerUUID);
+        }
+
+        // Provide a common function for getting a WebRTC peer connection object.
+        getConnectionObject(peerUUID) {
+            const self = this;
+            return self.getConnectionState(peerUUID).con;
+        }
+
+        // Provide a common function for getting a WebRTC peer connection data/states.
+        getConnectionState(peerUUID) {
+            const self = this;
+            return self.cons[peerUUID];
+        }
+
+        // Provide a common function for creating a WebRTC data channel.
+        createChannelObject(channelName, channelID, channelOrdered, peerUUID, peerUsername) {
+            const self = this;
+            let chan = self.getConnectionObject(peerUUID).createDataChannel(
+                channelName,
+                {
+                    ordered: channelOrdered,
+                    negotiated: true,
+                    id: channelID,
+                }
+            );
+            self.cons[peerUUID].chans[channelName] = {
+                chan: chan,
+                lists: {},
+                vars: {},
+                cloudlists: {},
+                new: false,
+                value: "",
+            };
+            self.initializeDataChannel(chan, peerUUID, peerUsername);
+            return self.getChannelObject(channelName, peerUUID);
+        }
+
+        // Provide a common function for accessing channel data/states.
+        getChannelState(channelName, peerUUID) {
+            const self = this;
+            return self.cons[peerUUID].chans[channelName];
+        }
+
+        // Provide a common function for accessing a WebRTC data channel.
+        getChannelObject(channelName, peerUUID) {
+            const self = this;
+            return self.getChannelState(channelName, peerUUID).chan;
         }
 
         initializeCon(con, peerUsername, peerUUID) {
@@ -531,11 +593,11 @@
                         if (this.mode != "host") return;
                         console.log(`Peer ${peerUsername} (${peerUUID}) accepted new peer ${message.payload.username} (${message.payload.id}) discovery, requesting offer`);
                         
-                        // Get discovered peer
-                        peerChan = self.cons[message.payload.id].chans['default'].chan;
-
-                        // Relay request to discovered peer
-                        peerChan.send(JSON.stringify({
+                        // Get discovered peer and relay request to discovered peer
+                        self.getChannelObject(
+                            "default",
+                            String(message.payload.id)
+                        ).send(JSON.stringify({
                             command: "discovery_init",
                             payload: {
                                 id: peerUUID,
@@ -551,15 +613,19 @@
                         console.log(`Host ${peerUsername} (${peerUUID}) is negotiating new peer ${message.payload.username} (${message.payload.id}) discovery, making offer`);
 
                         // Create new connection object
-                        peerCon = new RTCPeerConnection(self.configuration);
-                        self.cons[message.payload.id] = {
-                            con: peerCon,
-                            chans: {},
-                            nextchanid: 1,
-                            uuid: message.payload.id,
-                            username: message.payload.username,
-                        };
-                        self.initializeCon(peerCon, message.payload.username, message.payload.id);
+                        peerCon = self.createConnectionObject(
+                            String(message.payload.id),
+                            String(message.payload.username)
+                        );
+
+                        // Create new data channel
+                        self.createChannelObject(
+                            "default",
+                            0,
+                            true,
+                            String(message.payload.id),
+                            String(message.payload.username)
+                        );
 
                         // Gather ICE candidates and send them to peer
                         peerCon.addEventListener("icecandidate", (e) => {
@@ -574,30 +640,12 @@
                                     username: message.payload.username,
                                 },
                             }))
-                        
                         });
 
-                        // Create new data channel
-                        peerChan = peerCon.createDataChannel("default", {
-                            ordered: true,
-                            negotiated: true,
-                            id: 0,
-                        });
-                        self.cons[message.payload.id].chans['default'] = {
-                            chan: peerChan,
-                            lists: {},
-                            vars: {},
-                            cloudlists: {},
-                            new: false,
-                            value: "",
-                        };
-                        self.initializeDataChannel(peerChan, message.payload.id, message.payload.username);
-
-                        // Generate offer
-                        offer = await peerCon.createOffer();
-
-                        // Set local description
-                        await peerCon.setLocalDescription(offer);
+                        // Generate offer and set local description
+                        await peerCon.setLocalDescription(
+                            await peerCon.createOffer()
+                        );
 
                         // Send offer to the host, host will relay offer to peer
                         chan.send(JSON.stringify({
@@ -613,15 +661,14 @@
                     
                     // If host, relay ICE candidate to peer. If peer, read the ICE candidate and add it to newly discovered peer connection.
                     case "discovery_ice":
-
                         if (this.mode == "host") {
                             console.log(`Peer ${peerUsername} (${peerUUID}) is offering ICE to peer ${message.rx.username} (${message.rx.id}), relaying ICE`);
 
-                            // Get discovered peer
-                            peerChan = self.cons[message.rx.id].chans['default'].chan;
-
-                            // Relay request to discovered peer
-                            peerChan.send(JSON.stringify({
+                            // Get discovered peer and relay request to discovered peer
+                            self.getChannelObject(
+                                "default",
+                                String(message.rx.id)
+                            ).send(JSON.stringify({
                                 command: "discovery_ice",
                                 payload: message.payload,
                                 tx: {
@@ -629,16 +676,16 @@
                                     username: peerUsername,
                                 },
                             }));
-                        
                         }
                         else if (this.mode == "peer") {
                             console.log(`Host ${peerUsername} (${peerUUID}) returned ICE offer from peer ${message.tx.username} (${message.tx.id}), configuring ICE`);
 
-                            // Get discovered peer
-                            peerCon = self.cons[message.tx.id].con;
-
-                            // Set ICE candidate
-                            peerCon.addIceCandidate(new RTCIceCandidate(message.payload));
+                            // Get discovered peer and set ICE candidate
+                            self.getConnectionObject(
+                                String(message.tx.id)
+                            ).addIceCandidate(
+                                new RTCIceCandidate(message.payload)
+                            );
                         }
 
                         break;
@@ -650,11 +697,11 @@
                         if (this.mode == "host")  {
                             console.log(`Peer ${peerUsername} (${peerUUID}) made offer to ${message.rx.username} (${message.rx.id}), relaying offer`);
 
-                            // Get peer
-                            peerChan = self.cons[message.rx.id].chans['default'].chan;
-
-                            // Relay offer to peer
-                            peerChan.send(JSON.stringify({
+                            // Get discovered peer and relay offer to discovered peer
+                            self.getChannelObject(
+                                "default",
+                                String(message.rx.id)
+                            ).send(JSON.stringify({
                                 command: "discovery_make_offer",
                                 payload: message.payload,
                                 tx: {
@@ -669,15 +716,19 @@
                             console.log(`Host ${peerUsername} (${peerUUID}) returned offer from ${message.tx.username} (${message.tx.id}), creating answer`);
 
                             // Create new connection object
-                            peerCon = new RTCPeerConnection(self.configuration);
-                            self.cons[message.tx.id] = {
-                                con: peerCon,
-                                chans: {},
-                                nextchanid: 1,
-                                uuid: message.tx.id,
-                                username: message.tx.username,
-                            };
-                            self.initializeCon(peerCon, message.tx.username, message.tx.id);
+                            peerCon = self.createConnectionObject(
+                                String(message.tx.id),
+                                String(message.tx.username)
+                            );
+
+                            // Create new data channel
+                            self.createChannelObject(
+                                "default",
+                                0,
+                                true,
+                                String(message.tx.id),
+                                String(message.tx.username)
+                            );
 
                             // Gather ICE candidates and send them to peer
                             peerCon.addEventListener("icecandidate", (e) => {
@@ -692,36 +743,17 @@
                                         username: message.tx.username,
                                     },
                                 }))
-                            
                             });
 
-                            // Create new data channel
-                            peerChan = peerCon.createDataChannel("default", {
-                                ordered: true,
-                                negotiated: true,
-                                id: 0,
-                            });
-                            self.cons[message.tx.id].chans['default'] = {
-                                chan: peerChan,
-                                lists: {},
-                                vars: {},
-                                cloudlists: {},
-                                new: false,
-                                value: "",
-                            };
-                            self.initializeDataChannel(peerChan, message.tx.id, message.tx.username);
+                            // Get offer and set remote description
+                            await peerCon.setRemoteDescription(
+                                new RTCSessionDescription(message.payload)
+                            );
 
-                            // Get offer
-                            offer = new RTCSessionDescription(message.payload);
-
-                            // Set remote description
-                            await peerCon.setRemoteDescription(offer);
-
-                            // Generate answer
-                            answer = await peerCon.createAnswer();
-
-                            // Set local description
-                            await peerCon.setLocalDescription(answer);
+                            // Generate answer and set local description
+                            await peerCon.setLocalDescription(
+                                await peerCon.createAnswer()
+                            );
 
                             // Send answer to the host, host will relay answer to peer
                             chan.send(JSON.stringify({
@@ -743,11 +775,11 @@
                         if (this.mode == "host")  {
                             console.log(`Peer ${peerUsername} (${peerUUID}) made answer to ${message.rx.username} (${message.rx.id}), relaying answer`);
 
-                            // Get peer
-                            peerChan = self.cons[message.rx.id].chans['default'].chan;
-
-                            // Relay offer to peer
-                            peerChan.send(JSON.stringify({
+                            // Get discovered peer and relay answer to discovered peer
+                            self.getChannelObject(
+                                "default",
+                                String(message.rx.id)
+                            ).send(JSON.stringify({
                                 command: "discovery_make_answer",
                                 payload: message.payload,
                                 tx: {
@@ -760,33 +792,26 @@
                         // Configure connection using answer from peer
                         else if (this.mode == "peer") {
                             console.log(`Host ${peerUsername} (${peerUUID}) returned answer from ${message.tx.username} (${message.tx.id}), initializing connection`);
-                            answer = new RTCSessionDescription(message.payload);
-
-                            peerCon = self.cons[message.tx.id].con;
-
+                            
                             // Set local description
-                            await peerCon.setRemoteDescription(answer);
+                            await self.getConnectionObject(
+                                String(message.tx.id)
+                            ).setRemoteDescription(
+                                new RTCSessionDescription(message.payload)
+                            );
                         }
 
                         break;
                     
                     // Create channel
                     case "newchan":
-                        let tmpchan = self.cons[peerUUID].con.createDataChannel(message.payload.name, {
-                            ordered: message.payload.ordered,
-                            negotiated: true,
-                            id: message.payload.id,
-                        });
-
-                        self.initializeDataChannel(tmpchan, peerUUID, peerUsername);
-
-                        self.cons[peerUUID].chans[message.payload.name] = {
-                            chan: tmpchan,
-                            lists: {},
-                            vars: {},
-                            new: false,
-                            value: "",
-                        };
+                        self.createChannelObject(
+                            String(message.payload.name),
+                            message.payload.id,
+                            message.payload.ordered,
+                            String(peerUUID),
+                            String(peerUsername)
+                        );
 
                         // Increment new channel ID
                         self.cons[peerUUID].nextchanid = (message.payload.id + 1);
@@ -794,7 +819,7 @@
                         
                     // Close connection
                     case "goodbye":
-                        await self.cons[peerUUID].con.close();
+                        await self.getConnectionObject(peerUUID).close();
                         delete self.cons[peerUUID];
                         console.log(`Peer \"${peerUsername}\" (${peerUUID}) disconnected.`);
                         break;
@@ -808,8 +833,8 @@
                         console.log('Got new data ', message.payload, ` from peer \"${peerUsername}\" (${peerUUID}) in channel \"${chan.label}\"`);
 
                         // Store the message
-                        lists = self.cons[peerUUID].chans[String(chan.label)].lists;
-                        variables = self.cons[peerUUID].chans[String(chan.label)].vars;
+                        lists = self.getChannelState(chan.label, peerUUID).lists;
+                        variables = self.getChannelState(chan.label, peerUUID).vars;
 
                         // Update lists
                         for (const key in lists) {
@@ -833,8 +858,8 @@
                         }
 
                         // Update state
-                        self.cons[peerUUID].chans[String(chan.label)].value = message.payload;
-                        self.cons[peerUUID].chans[String(chan.label)].new = true;
+                        self.getChannelState(chan.label, peerUUID).value = message.payload;
+                        self.getChannelState(chan.label, peerUUID).new = true;
                         break;
                 }
             }
@@ -842,31 +867,36 @@
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${chan.label}\" error!`, e.error);
                 // Destroy channel reference
                 if (self.cons[peerUUID] && self.cons[peerUUID].chans[String(chan.label)]) {
-                    delete self.cons[peerUUID].chans[String(chan.label)];
+                    delete self.cons[peerUUID].chans[chan.label];
                 }
             }
             chan.onclosing = (e) => {
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${chan.label}\" closing...`);
                 // Destroy channel reference
                 if (self.cons[peerUUID] && self.cons[peerUUID].chans[String(chan.label)]) {
-                    delete self.cons[peerUUID].chans[String(chan.label)];
+                    delete self.cons[peerUUID].chans[chan.label];
                 }
             }
             chan.onclose = (e) => {
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${chan.label}\" closed!`);
                 // Destroy channel reference
                 if (self.cons[peerUUID] && self.cons[peerUUID].chans[String(chan.label)]) {
-                    delete self.cons[peerUUID].chans[String(chan.label)];
+                    delete self.cons[peerUUID].chans[chan.label];
                 }
             }
         }
 
         initializeWebSocket(server, ugi) {
             const self = this;
+
+            // Get server URL. TODO: Use URL object
             const signalingServerURL = `${server}signaling/${ugi}?v=0`;
             console.log(`Connecting to server: ${signalingServerURL}`);
+
+            // Connect to game server
             self.websocket = new WebSocket(signalingServerURL);
 
+            // Handle connect
             self.websocket.onopen = () => {
                 console.log(`Connected to server!`);
 
@@ -875,15 +905,52 @@
 
                 // Fire event hats
                 self.runtime.startHats("dumb_on_signalling_connect");
+
+                // Create keepalive
+                self.keepalive = setInterval(() => {
+                    if (self.websocket && self.websocket.readyState === WebSocket.OPEN) {
+                        self.sendSignallingMessage(
+                            self.signalingOpcodes.KEEPALIVE
+                        );
+                    }
+                }, 30000); // Send the keepalive message every 30 seconds
             };
 
+            // Handle messages
             self.websocket.onmessage = (event) => {
-                let message = JSON.parse(event.data);
-                self.handleSignalingMessage(message);
+                self.handleSignalingMessage(JSON.parse(event.data));
             };
 
-            self.websocket.onclose = () => {
+            // Handle closure/disconnect
+            self.websocket.onclose = async() => {
                 console.log(`Disconnected from server!`);
+                
+                // Clear keepalive
+                clearInterval(self.keepalive);
+                self.keepalive = null;
+
+                // Gracefully close all peer connections
+                for (const peer in self.cons) {
+
+                    // Get RTCPeerConnection object
+                    let con = self.getConnectionObject(String(peer));
+
+                    // Get default channel object
+                    let chan = self.getChannelObject("default", String(peer));
+
+                    // Tell peer we are going away and wait for the message to send
+                    let before = chan.bufferedAmount;
+                    chan.send(JSON.stringify({command: "goodbye"}));
+                    chan.bufferedAmountLowThreshold = before;
+                    await new Promise(r => chan.addEventListener("bufferedamountlow", r));
+                    
+                    // Close the connection
+                    let tmp = String(peer);
+                    await con.close();
+                    delete self.cons[tmp];
+                };
+
+                // Reset values
                 self.websocket = null;
                 self.uuid = null;
                 self.username = null;
@@ -928,21 +995,20 @@
         sendSignallingMessage(opcode, payload, rx) {
             const self = this;
             if (!(self.websocket && self.websocket.readyState === WebSocket.OPEN)) return;
-            let message = {
+            self.websocket.send(JSON.stringify({
                 opcode: opcode,
                 payload: payload,
                 rx: rx
-            };
-            self.websocket.send(JSON.stringify(message));
+            }));
         }
 
         async handleSignalingMessage(message) {
             const self = this;
-            // Placeholders
-            let offer, answer, con, chan, peerUUID, peerUsername = null;
+            let con = null;
 
             // Handle various signaling messages and implement the negotiation process
             switch (message.opcode) {
+
                 // Get session UUID for our client
                 case self.signalingOpcodes.INIT_OK:
                     self.uuid = message.payload;
@@ -971,9 +1037,20 @@
                 case self.signalingOpcodes.NEW_PEER:
                     if (self.mode != "host") return;
 
-                    // Create con connection object and data channel
-                    con = new RTCPeerConnection(self.configuration);
-                    self.initializeCon(con, message.payload.username, message.payload.id);
+                    // Create con connection object
+                    con = self.createConnectionObject(
+                        String(message.payload.id),
+                        String(message.payload.username),
+                    );
+
+                    // Create data channel
+                    self.createChannelObject(
+                        "default",
+                        0,
+                        true,
+                        String(message.payload.id),
+                        String(message.payload.username)
+                    );
 
                     // Gather ICE candidates and send them to peer
                     con.addEventListener("icecandidate", (e) => {
@@ -981,40 +1058,14 @@
                         self.sendSignallingMessage(
                             self.signalingOpcodes.ICE,
                             e.candidate.toJSON(),
-                            message.payload.id
+                            String(message.payload.id)
                         )
                     });
 
-                    chan = con.createDataChannel("default", {
-                        ordered: true,
-                        negotiated: true,
-                        id: 0,
-                    });
-
-                    self.cons[message.payload.id] = {
-                        con: con,
-                        chans: {},
-                        nextchanid: 1,
-                        uuid: message.payload.id,
-                        username: message.payload.username,
-                    };
-
-                    self.cons[message.payload.id].chans['default'] = {
-                        chan: chan,
-                        lists: {},
-                        vars: {},
-                        cloudlists: {},
-                        new: false,
-                        value: "",
-                    };
-
-                    self.initializeDataChannel(chan, message.payload.id, message.payload.username);
-
-                    // Generate offer
-                    offer = con.createOffer();
-
-                    // Set local description
-                    await con.setLocalDescription(offer);
+                    // Generate offer and set local description
+                    await con.setLocalDescription(
+                        con.createOffer()
+                    );
 
                     // Send offer back to con
                     self.sendSignallingMessage(
@@ -1027,11 +1078,21 @@
                 // Handle host offer
                 case self.signalingOpcodes.MAKE_OFFER:
                     if (self.mode != "peer") return;
-                    offer = new RTCSessionDescription(message.payload);
 
-                    // Create con connection object and data channel
-                    con = new RTCPeerConnection(self.configuration);
-                    self.initializeCon(con, message.tx.username, message.tx.id);
+                    // Create con connection object
+                    con = self.createConnectionObject(
+                        String(message.tx.id),
+                        String(message.tx.username),
+                    );
+
+                    // Create data channel
+                    self.createChannelObject(
+                        "default",
+                        0,
+                        true,
+                        String(message.tx.id),
+                        String(message.tx.username)
+                    );
 
                     // Gather ICE candidates and send them to peer
                     con.addEventListener("icecandidate", (e) => {
@@ -1039,43 +1100,19 @@
                         self.sendSignallingMessage(
                             self.signalingOpcodes.ICE,
                             e.candidate.toJSON(),
-                            message.tx.id
+                            String(message.tx.id)
                         )
                     });
 
-                    chan = con.createDataChannel("default", {
-                        ordered: true,
-                        negotiated: true,
-                        id: 0,
-                    });
-
-                    self.cons[message.tx.id] = {
-                        con: con,
-                        nextchanid: 1,
-                        chans: {},
-                        uuid: message.tx.id,
-                        username: message.tx.username,
-                    };
-
-                    self.cons[message.tx.id].chans['default'] = {
-                        chan: chan,
-                        lists: {},
-                        vars: {},
-                        cloudlists: {},
-                        new: false,
-                        value: "",
-                    };
-
-                    self.initializeDataChannel(chan, message.tx.id, message.tx.username);
-
                     // Configure remote description
-                    await con.setRemoteDescription(offer);
+                    await con.setRemoteDescription(
+                        new RTCSessionDescription(message.payload)
+                    );
 
-                    // Generate answer
-                    answer = await con.createAnswer();
-
-                    // Set local description
-                    await con.setLocalDescription(answer);
+                    // Generate answer and set local description
+                    await con.setLocalDescription(
+                        await con.createAnswer()
+                    );
 
                     // Send answer to host
                     self.sendSignallingMessage(
@@ -1088,17 +1125,27 @@
                 // Handle con answer
                 case self.signalingOpcodes.MAKE_ANSWER:
                     if (self.mode != "host") return;
-                    answer = new RTCSessionDescription(message.payload);
-
+                    
                     // Set local description
-                    await self.cons[message.tx.id].con.setRemoteDescription(answer);
+                    await self.getConnectionObject(
+                        String(message.tx.id)
+                    ).setRemoteDescription(
+                        new RTCSessionDescription(message.payload)
+                    );
+
                     break;
 
                 // Handle host ICE offers
                 case self.signalingOpcodes.ICE:
                     if ((self.mode == "host") || (self.mode == "peer")) {
+
                         // Set ICE candidates from con
-                        self.cons[message.tx.id].con.addIceCandidate(new RTCIceCandidate(message.payload));
+                        self.getConnectionObject(
+                            String(message.tx.id)
+                        ).addIceCandidate(
+                            new RTCIceCandidate(message.payload)
+                        );
+                        
                     }
                     break;
             }
@@ -1140,6 +1187,12 @@
                 self.cons[args.PEER].chans[args.CHANNEL].new = false;
                 return true;
             }
+            return false;
+        }
+
+        on_channel_cloud_list(args, util) {
+            const self = this;
+            // stub
             return false;
         }
 
@@ -1282,6 +1335,16 @@
             });
         }
 
+        send_list(args, util) {
+            const self = this;
+            // stub
+        }
+
+        make_list(args, util) {
+            const self = this;
+            // stub
+        }
+
         channel_data_store_in_variable(args, util) {
             const self = this;
             return new Promise((resolve, reject) => {
@@ -1321,45 +1384,32 @@
                     return;
                 };
 
-                // Get ordered state
-                let ordered = (args.ORDERED == "1");
-
-                // Get next channel ID value
-                let chanid = self.cons[args.PEER].nextchanid;
-
-                // Get peer username
-                let username = self.cons[args.PEER].username;
-
                 // Create channel
-                let chan = self.cons[args.PEER].con.createDataChannel(String(args.CHANNEL), {
-                    ordered: ordered,
-                    negotiated: true,
-                    id: chanid,
-                });
-                self.cons[args.PEER].chans[String(args.CHANNEL)] = {
-                    chan: chan,
-                    lists: {},
-                    vars: {},
-                    new: false,
-                    value: "",
-                };
-                self.initializeDataChannel(chan, args.PEER, username);
+                self.createChannelObject(
+                    String(args.CHANNEL),
+                    self.cons[String(args.PEER)].nextchanid,
+                    (args.ORDERED == "1"),
+                    String(args.PEER),
+                    self.cons[String(args.PEER)].username
+                );
 
                 // Tell peer to create a new data channel on their end
-                let message = {
-                    command: "newchan",
-                    payload: {
-                        id: chanid,
-                        ordered: ordered,
-                        name: String(args.CHANNEL),
-                    }
-                };
-                self.cons[args.PEER].chans['default'].chan.send(
-                    JSON.stringify(message)
+                self.getChannelObject(
+                    'default',
+                    String(args.PEER)
+                ).send(
+                    JSON.stringify({
+                        command: "newchan",
+                        payload: {
+                            id: self.cons[String(args.PEER)].nextchanid,
+                            ordered: ordered,
+                            name: String(args.CHANNEL),
+                        }
+                    })
                 );
 
                 // Increment new channel ID
-                self.cons[args.PEER].nextchanid += 1;
+                self.cons[String(args.PEER)].nextchanid += 1;
                 resolve();
             });
         }
@@ -1381,7 +1431,7 @@
                 };
 
                 // Get channel object
-                let chan = self.cons[args.PEER].chans[String(args.CHANNEL)].chan;
+                let chan = self.getChannelObject(String(args.CHANNEL), String(args.PEER));
 
                 // Close the channel and wait for it to close
                 chan.close();
@@ -1399,10 +1449,10 @@
                 };
 
                 // Get RTCPeerConnection object
-                let con = self.cons[args.PEER].con;
+                let con = self.getConnectionObject(String(args.PEER));
                 
                 // Get default channel object
-                let chan = self.cons[args.PEER].chans['default'].chan;
+                let chan = self.getChannelObject("default", String(args.PEER));
 
                 // Tell peer we are going away and wait for the message to send
                 let before = chan.bufferedAmount;
@@ -1430,10 +1480,10 @@
                 for (const peer in self.cons) {
 
                     // Get RTCPeerConnection object
-                    let con = self.cons[peer].con;
+                    let con = self.getConnectionObject(String(peer));
 
                     // Get default channel object
-                    let chan = self.cons[peer].chans['default'].chan;
+                    let chan = self.getChannelObject("default", String(peer));
 
                     // Tell peer we are going away and wait for the message to send
                     let before = chan.bufferedAmount;
@@ -1456,8 +1506,9 @@
 
     Scratch.vm.runtime.on('BEFORE_EXECUTE', () => {
         Scratch.vm.runtime.startHats('dumb_on_channel_message');
+        Scratch.vm.runtime.startHats('dumb_on_channel_cloud_list');
     });
 
     Scratch.extensions.register(new dumb(Scratch));
-    // vm.extensionManager._registerInternalExtension(new dumb(vm));
+    // vm.extensionManager._registerInternalExtension(new CloudLinkOmega(vm));
 })(Scratch);
