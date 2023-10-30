@@ -277,9 +277,9 @@
                     },
                     "---",
                     {
-                        opcode: "on_channel_cloud_list",
+                        opcode: "on_channel_networked_list",
                         blockType: "hat",
-                        text: "When I get a cloud list named [LISTNAME] from peer [PEER] in channel [CHANNEL]",
+                        text: "When I get a networked list named [LISTNAME] from peer [PEER] in channel [CHANNEL]",
                         isEdgeActivated: false,
                         arguments: {
                             LISTNAME: {
@@ -297,9 +297,9 @@
                         },
                     },
                     {
-                        opcode: "send_list",
+                        opcode: "send_networked_list",
                         blockType: "command",
-                        text: "Send cloud list [LISTNAME] to peer [PEER] using channel [CHANNEL] and wait for cloud list to finish sending? [WAIT]",
+                        text: "Send networked list [LISTNAME] to peer [PEER] using channel [CHANNEL] and wait for cloud list to finish sending? [WAIT]",
                         arguments: {
                             LISTNAME: {
                                 type: 'string',
@@ -320,28 +320,9 @@
                         },
                     },
                     {
-                        opcode: "channel_data_store_in_list",
+                        opcode: "make_networked_list",
                         blockType: "command",
-                        text: "Store received messages from peer [PEER]'s channel [CHANNEL] into list [LIST]",
-                        arguments: {
-                            CHANNEL: {
-                                type: 'string',
-                                defaultValue: 'default',
-                            },
-                            PEER: {
-                                type: 'string',
-                                defaultValue: 'UUID',
-                            },
-                            LIST: {
-                                type: 'string',
-                                defaultValue: 'my list',
-                            },
-                        },
-                    },
-                    {
-                        opcode: "make_list",
-                        blockType: "command",
-                        text: "Make list [LIST] a cloud list named [LISTNAME]",
+                        text: "Make list [LIST] a networked list named [LISTNAME] with peer [PEER] in channel [CHANNEL]",
                         arguments: {
                             LIST: {
                                 type: 'string',
@@ -350,6 +331,14 @@
                             LISTNAME: {
                                 type: 'string',
                                 defaultValue: 'my cloud list',
+                            },
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'default',
+                            },
+                            PEER: {
+                                type: 'string',
+                                defaultValue: 'UUID',
                             },
                         },
                     },
@@ -495,7 +484,7 @@
                 chan: chan,
                 lists: {},
                 vars: {},
-                cloudlists: {},
+                networked_lists: {},
                 new: false,
                 value: "",
             };
@@ -553,6 +542,8 @@
 
         initializeDataChannel(chan, peerUUID, peerUsername) {
             const self = this;
+
+
             chan.onopen = (e) => {
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${chan.label}\" opened! Is this channel ordered: ${chan.ordered}, ID: ${chan.id}`);
 
@@ -839,8 +830,27 @@
                         console.log(`Peer \"${peerUsername}\" (${peerUUID}) disconnected.`);
                         break;
                     
-                    // TODO: implement sending cloud lists
+                    // Implement sending networked lists
                     case "list":
+                        console.log('Got new networked list ', message.payload.id, ` with value `, message.payload.value, `from peer \"${peerUsername}\" (${peerUUID}) in channel \"${chan.label}\"`);
+                        
+                        // Store the data
+                        let networked_lists = self.getChannelState(chan.label, peerUUID).networked_lists;
+                        let list = networked_lists[message.payload.id];
+
+                        if (!list) {
+                            console.log(`Networked list ${message.payload.id} not declared in client`);
+                            return;
+                        };
+
+                        // Get list
+                        let target = self.runtime.getTargetById(list.target);
+                        let tmp = target.lookupVariableByNameAndType(list.id, "list");
+
+                        // Update value
+                        tmp.value = message.payload.value;
+                        tmp._monitorUpToDate = false;
+                        
                         break;
 
                     // Handle messages
@@ -1205,7 +1215,7 @@
             return false;
         }
 
-        on_channel_cloud_list(args, util) {
+        on_channel_networked_list(args, util) {
             const self = this;
             // stub
             return false;
@@ -1302,17 +1312,22 @@
                     reject(`Peer ${args.PEER} invalid/not found!`);
                     return;
                 };
-                let message = {
-                    command: "data",
-                    payload: args.DATA
-                };
-                let chan = self.cons[args.PEER].chans[args.CHANNEL].chan;
+
                 let username = self.cons[args.PEER].username;
+                let chan = self.getChannelObject(
+                    String(args.CHANNEL),
+                    String(args.PEER)
+                );
 
                 // If we want to wait for the message to send, get the current buffer size
                 if (args.WAIT) {
                     before = chan.bufferedAmount;
                 }
+
+                let message = {
+                    command: "data",
+                    payload: args.DATA
+                };
 
                 chan.send(JSON.stringify(message));
 
@@ -1350,14 +1365,89 @@
             });
         }
 
-        send_list(args, util) {
+        send_networked_list(args, util) {
             const self = this;
-            // stub
+            return new Promise(async(resolve, reject) => {
+                let before;
+                let username = self.cons[args.PEER].username;
+                let chan = self.getChannelObject(
+                    String(args.CHANNEL),
+                    String(args.PEER)
+                );
+                
+                let list = self.getChannelState(
+                    String(args.CHANNEL),
+                    String(args.PEER)
+                ).networked_lists[String(args.LISTNAME)];
+
+                if (!list) {
+                    reject(`List ${args.LISTNAME} not found!`);
+                    return;
+                }
+
+                // Get list
+                let target = self.runtime.getTargetById(list.target);
+                let tmp = target.lookupVariableByNameAndType(list.id, "list");
+
+                // Send value
+                // If we want to wait for the message to send, get the current buffer size
+                if (args.WAIT) {
+                    before = chan.bufferedAmount;
+                }
+
+                let message = {
+                    command: "list",
+                    payload: {
+                        id: String(args.LISTNAME),
+                        value: tmp.value,
+                    }
+                };
+
+                chan.send(JSON.stringify(message));
+
+                // Wait for the message to finish sending by awaiting the buffer flushing
+                if (args.WAIT) {
+                    chan.bufferedAmountLowThreshold = before;
+                    await new Promise(r => chan.addEventListener("bufferedamountlow", r));
+                }
+                console.log('Sent', message, `to peer \"${username}\" (${args.PEER}) in channel \"${chan.label}\"`);
+                resolve();
+            });
         }
 
-        make_list(args, util) {
+        make_networked_list(args, util) {
             const self = this;
-            // stub
+            return new Promise((resolve, reject) => {
+
+                // Remove this target from the object store
+                if (String(args.LISTNAME) == "null") {
+                    delete self.getChannelState(
+                        String(args.CHANNEL),
+                        String(args.PEER)
+                    ).networked_lists[String(args.LISTNAME)];
+                    resolve();
+                    return;
+                }
+
+                // Find and validate target
+                let list = util.target.lookupVariableByNameAndType(String(args.LIST), "list");
+                if (!list) {
+                    reject(`List \"${args.LIST}\" not found.`);
+                    return;
+                };
+
+                // Create entry
+                self.getChannelState(
+                    String(args.CHANNEL),
+                    String(args.PEER)
+                ).networked_lists[String(args.LISTNAME)] = {
+                    target: util.target.id,
+                    id: String(args.LIST),
+                    new: false,
+                };
+
+                resolve();
+            });
         }
 
         channel_data_store_in_variable(args, util) {
@@ -1521,7 +1611,7 @@
 
     Scratch.vm.runtime.on('BEFORE_EXECUTE', () => {
         Scratch.vm.runtime.startHats('cloudlinkomega_on_channel_message');
-        Scratch.vm.runtime.startHats('cloudlinkomega_on_channel_cloud_list');
+        Scratch.vm.runtime.startHats('cloudlinkomega_on_channel_networked_list');
     });
 
     Scratch.extensions.register(new CloudLinkOmega(Scratch));
