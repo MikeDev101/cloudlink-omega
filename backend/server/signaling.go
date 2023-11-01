@@ -47,7 +47,6 @@ var Opcodes = map[string]int{
 	"PASSWORD_FAIL":     33,
 	"PEER_INVALID":      34,
 	"NEW_CHANNEL":       35,
-	"DISCOVER":          36,
 }
 
 func NotifyPeersOfStateChange(eventType int, lobbyID string, manager *Manager, client *Client) {
@@ -162,7 +161,7 @@ func (client *Client) CloseConnectionOnError(opcode int, message string, errorco
 func (client *Client) assertString(i interface{}) (string, bool) {
 	s, ok := i.(string)
 	if !ok {
-		go client.CloseConnectionOnError(
+		client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
 			"Assertion error: payload argument must be a string type",
 			websocket.CloseUnsupportedData,
@@ -176,7 +175,7 @@ func (client *Client) assertString(i interface{}) (string, bool) {
 func (client *Client) assertBool(i interface{}) (bool, bool) {
 	s, ok := i.(bool)
 	if !ok {
-		go client.CloseConnectionOnError(
+		client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
 			"Assertion error: payload argument must be a boolean type",
 			websocket.CloseUnsupportedData,
@@ -190,7 +189,7 @@ func (client *Client) assertBool(i interface{}) (bool, bool) {
 func (client *Client) assertInt(i interface{}) (int, bool) {
 	s, ok := i.(int)
 	if !ok {
-		go client.CloseConnectionOnError(
+		client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
 			"Assertion error: payload argument must be a int type",
 			websocket.CloseUnsupportedData,
@@ -211,7 +210,7 @@ func (client *Client) assertUsernameSet() bool {
 
 	// Handle username not being set
 	if !nameset {
-		go client.CloseConnectionOnError(
+		client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
 			"State error: a username is required",
 			websocket.CloseUnsupportedData,
@@ -233,7 +232,7 @@ func opcode_KEEPALIVE(message []byte, packet *Packet, client *Client, manager *M
 func opcode_INIT(message []byte, packet *Packet, client *Client, manager *Manager) {
 	// Require a username to be declared
 	if packet.Payload == nil {
-		go client.CloseConnectionOnError(
+		client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
 			"Value error: missing username (payload) value",
 			websocket.CloseUnsupportedData,
@@ -249,7 +248,7 @@ func opcode_INIT(message []byte, packet *Packet, client *Client, manager *Manage
 
 	// Check if username has already been set, and prevent re-sending this command
 	if client.nameSet {
-		go client.CloseConnectionOnError(
+		client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
 			"State error: username has already been set",
 			websocket.CloseUnsupportedData,
@@ -282,7 +281,7 @@ func opcode_INIT(message []byte, packet *Packet, client *Client, manager *Manage
 func opcode_CONFIG_HOST(message []byte, packet *Packet, client *Client, manager *Manager) {
 	// Require a lobby ID to be declared
 	if packet.Payload == nil {
-		go client.CloseConnectionOnError(
+		client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
 			"Value error: missing lobby ID (payload) value",
 			websocket.CloseUnsupportedData,
@@ -298,7 +297,7 @@ func opcode_CONFIG_HOST(message []byte, packet *Packet, client *Client, manager 
 	// Re-marshal the message using HostConfig struct
 	config := &HostConfig{}
 	if err := json.Unmarshal(message, &config); err != nil {
-		go client.CloseConnectionOnError(
+		client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
 			"Argument error: failed to parse payload keyvalue as JSON. Did you read the documentation?",
 			websocket.CloseUnsupportedData,
@@ -333,7 +332,7 @@ func opcode_CONFIG_HOST(message []byte, packet *Packet, client *Client, manager 
 	// Add client to hosts storage for manager
 	if ok := NewHost(lobbyID, client, manager, AllowHostReclaim, AllowPeersToReclaim, MaxPeers, Password); !ok {
 		// Tell the client that the lobby already exists (couldn't create lobby)
-		go UnicastMessage(client, JSONDump(&Packet{
+		UnicastMessage(client, JSONDump(&Packet{
 			Opcode: Opcodes["LOBBY_EXISTS"],
 		}), nil)
 		return
@@ -364,7 +363,7 @@ func opcode_CONFIG_HOST(message []byte, packet *Packet, client *Client, manager 
 func opcode_CONFIG_PEER(message []byte, packet *Packet, client *Client, manager *Manager) {
 	// Require a lobby ID to be declared
 	if packet.Payload == nil {
-		go client.CloseConnectionOnError(
+		client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
 			"Value error: missing lobby ID (payload) value",
 			websocket.CloseUnsupportedData,
@@ -380,7 +379,7 @@ func opcode_CONFIG_PEER(message []byte, packet *Packet, client *Client, manager 
 	// Re-marshal the message using PeerConfig struct
 	config := &PeerConfig{}
 	if err := json.Unmarshal(message, &config); err != nil {
-		go client.CloseConnectionOnError(
+		client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
 			"Argument error: failed to parse payload keyvalue as JSON. Did you read the documentation?",
 			websocket.CloseUnsupportedData,
@@ -407,7 +406,7 @@ func opcode_CONFIG_PEER(message []byte, packet *Packet, client *Client, manager 
 		manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 
 		// Tell the client that the lobby doesn't exist
-		go UnicastMessage(client, JSONDump(&Packet{
+		UnicastMessage(client, JSONDump(&Packet{
 			Opcode: Opcodes["LOBBY_NOTFOUND"],
 		}), nil)
 		return
@@ -422,7 +421,7 @@ func opcode_CONFIG_PEER(message []byte, packet *Packet, client *Client, manager 
 	// Check if lobby is currently locked
 	if locked {
 		// Tell the client that the lobby is locked
-		go UnicastMessage(client, JSONDump(&Packet{
+		UnicastMessage(client, JSONDump(&Packet{
 			Opcode: Opcodes["LOBBY_LOCKED"],
 		}), nil)
 		return
@@ -431,7 +430,7 @@ func opcode_CONFIG_PEER(message []byte, packet *Packet, client *Client, manager 
 	// Check if the lobby is full
 	if (max_peers != 0) && (max_peers == peer_count) {
 		// Tell the client that the lobby is full
-		go UnicastMessage(client, JSONDump(&Packet{
+		UnicastMessage(client, JSONDump(&Packet{
 			Opcode: Opcodes["LOBBY_FULL"],
 		}), nil)
 		return
@@ -441,13 +440,13 @@ func opcode_CONFIG_PEER(message []byte, packet *Packet, client *Client, manager 
 	if password_required {
 		if Password == "" {
 			// Tell the client that the lobby requires a password
-			go UnicastMessage(client, JSONDump(&Packet{
+			UnicastMessage(client, JSONDump(&Packet{
 				Opcode: Opcodes["PASSWORD_REQUIRED"],
 			}), nil)
 			return
 		} else if Password != lobby_password {
 			// Tell the client that the lobby password is incorrect
-			go UnicastMessage(client, JSONDump(&Packet{
+			UnicastMessage(client, JSONDump(&Packet{
 				Opcode: Opcodes["PASSWORD_FAIL"],
 			}), nil)
 			return
@@ -462,7 +461,7 @@ func opcode_CONFIG_PEER(message []byte, packet *Packet, client *Client, manager 
 	// Add client to peers storage for manager
 	if ok := NewPeer(lobbyID, client, manager); !ok {
 		// Tell the client that the lobby doesn't exist (couldn't add to a lobby)
-		go UnicastMessage(client, JSONDump(&Packet{
+		UnicastMessage(client, JSONDump(&Packet{
 			Opcode: Opcodes["LOBBY_NOTFOUND"],
 		}), nil)
 		return
@@ -498,7 +497,7 @@ func opcode_MAKE_OFFER(message []byte, packet *Packet, client *Client, manager *
 	if err != nil {
 
 		// Tell the client the UUID was invalid and close the connection
-		go client.CloseConnectionOnError(
+		client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
 			"UUID parsing error: peer ID (rx) not a valid UUID format",
 			websocket.CloseUnsupportedData,
@@ -513,7 +512,7 @@ func opcode_MAKE_OFFER(message []byte, packet *Packet, client *Client, manager *
 	if !exists {
 
 		// Tell origin the recipient peer is invalid
-		go UnicastMessage(client, JSONDump(&Packet{
+		UnicastMessage(client, JSONDump(&Packet{
 			Opcode: Opcodes["PEER_INVALID"],
 		}), nil)
 		return
@@ -548,7 +547,7 @@ func opcode_MAKE_ANSWER(message []byte, packet *Packet, client *Client, manager 
 	if err != nil {
 
 		// Tell the client the UUID was invalid and close the connection
-		go client.CloseConnectionOnError(
+		client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
 			"UUID parsing error: peer ID (rx) not a valid UUID format",
 			websocket.CloseUnsupportedData,
@@ -563,7 +562,7 @@ func opcode_MAKE_ANSWER(message []byte, packet *Packet, client *Client, manager 
 	if !exists {
 
 		// Tell origin the recipient peer is invalid
-		go UnicastMessage(client, JSONDump(&Packet{
+		UnicastMessage(client, JSONDump(&Packet{
 			Opcode: Opcodes["PEER_INVALID"],
 		}), nil)
 		return
@@ -598,7 +597,7 @@ func opcode_ICE(message []byte, packet *Packet, client *Client, manager *Manager
 	if err != nil {
 
 		// Tell the client the UUID was invalid and close the connection
-		go client.CloseConnectionOnError(
+		client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
 			"UUID parsing error: peer ID (rx) not a valid UUID format",
 			websocket.CloseUnsupportedData,
@@ -613,7 +612,7 @@ func opcode_ICE(message []byte, packet *Packet, client *Client, manager *Manager
 	if !exists {
 
 		// Tell origin the recipient peer is invalid
-		go UnicastMessage(client, JSONDump(&Packet{
+		UnicastMessage(client, JSONDump(&Packet{
 			Opcode: Opcodes["PEER_INVALID"],
 		}), nil)
 		return
@@ -648,7 +647,7 @@ func opcode_NEW_CHANNEL(message []byte, packet *Packet, client *Client, manager 
 	if err != nil {
 
 		// Tell the client the UUID was invalid and close the connection
-		go client.CloseConnectionOnError(
+		client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
 			"UUID parsing error: peer ID (rx) not a valid UUID format",
 			websocket.CloseUnsupportedData,
@@ -663,7 +662,7 @@ func opcode_NEW_CHANNEL(message []byte, packet *Packet, client *Client, manager 
 	if !exists {
 
 		// Tell origin the recipient peer is invalid
-		go UnicastMessage(client, JSONDump(&Packet{
+		UnicastMessage(client, JSONDump(&Packet{
 			Opcode: Opcodes["PEER_INVALID"],
 		}), nil)
 		return
@@ -672,7 +671,7 @@ func opcode_NEW_CHANNEL(message []byte, packet *Packet, client *Client, manager 
 	// Re-marshal the message using ChannelDetails struct
 	details := &ChannelConfig{}
 	if err := json.Unmarshal(message, &details); err != nil {
-		go client.CloseConnectionOnError(
+		client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
 			"Argument error: failed to parse payload keyvalue as JSON. Did you read the documentation?",
 			websocket.CloseUnsupportedData,
@@ -714,7 +713,7 @@ func SignalingOpcode(message []byte, manager *Manager, client *Client) {
 	// Parse incoming JSON
 	var packet Packet
 	if err := json.Unmarshal(message, &packet); err != nil {
-		go client.CloseConnectionOnError(
+		client.CloseConnectionOnError(
 			Opcodes["VIOLATION"],
 			"Got invalid/malformed JSON: JSON parsing error!",
 			websocket.CloseUnsupportedData,

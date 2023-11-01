@@ -9,7 +9,7 @@ import (
 )
 
 var ServerVersion string = "0.1.0"
-var VerboselyLogLocks bool = false
+var VerboselyLogLocks bool = true
 
 type Lobby struct {
 	Host                  *Client

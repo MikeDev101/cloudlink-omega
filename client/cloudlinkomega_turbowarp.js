@@ -11,6 +11,8 @@
             this.cons = {};
             this.mode = null;
             this.newestPeer = {};
+            this.lobbyID = null;
+            this.hostPeer = null;
             this.configuration = {
                 iceServers: [
                     // Omega STUN/TURN servers
@@ -472,7 +474,8 @@
         // Provide a common function for creating a WebRTC data channel.
         createChannelObject(channelName, channelID, channelOrdered, peerUUID, peerUsername) {
             const self = this;
-            let chan = self.getConnectionObject(peerUUID).createDataChannel(
+            let con = self.getConnectionObject(peerUUID);
+            let chan = con.createDataChannel(
                 channelName,
                 {
                     ordered: channelOrdered,
@@ -488,7 +491,7 @@
                 new: false,
                 value: "",
             };
-            self.initializeDataChannel(chan, peerUUID, peerUsername);
+            self.initializeDataChannel(chan, con, peerUUID, peerUsername);
             return self.getChannelObject(channelName, peerUUID);
         }
 
@@ -540,9 +543,8 @@
             };
         }
 
-        initializeDataChannel(chan, peerUUID, peerUsername) {
+        initializeDataChannel(chan, con, peerUUID, peerUsername) {
             const self = this;
-
 
             chan.onopen = (e) => {
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${chan.label}\" opened! Is this channel ordered: ${chan.ordered}, ID: ${chan.id}`);
@@ -574,7 +576,10 @@
             }
             chan.onmessage = async(e) => {
                 let message = JSON.parse(e.data);
-                let peerCon, peerChan, variables, lists, offer, answer = null;
+                let peerCon, variables, lists = null;
+
+                // Log channel incoming messages
+                console.log(message);
 
                 // Handle channel commands
                 switch (message.command) {
@@ -825,7 +830,6 @@
                         
                     // Close connection
                     case "goodbye":
-                        await self.getConnectionObject(peerUUID).close();
                         delete self.cons[peerUUID];
                         console.log(`Peer \"${peerUsername}\" (${peerUUID}) disconnected.`);
                         break;
@@ -943,7 +947,10 @@
 
             // Handle messages
             self.websocket.onmessage = (event) => {
-                self.handleSignalingMessage(JSON.parse(event.data));
+                // Log incoming messages
+                let message = JSON.parse(event.data);
+                console.log(message);
+                self.handleSignalingMessage(message);
             };
 
             // Handle closure/disconnect
@@ -981,13 +988,16 @@
                 self.username = null;
                 self.mode = null;
                 self.newestPeer = {};
+                self.hostPeer = null;
+                self.lobbyID = null;
             }
         }
 
         async initializeAsHost(lobbyID, password, allowHostReclaim, allowPeersClaimHost, maxPeers) {
             const self = this;
-            if (self.mode == "peer") return;
-            self.mode = "host";
+            if ((self.mode == "peer") || (self.mode == "configuring")) return;
+            self.mode = "configuring";
+            self.lobbyID = String(lobbyID);
 
             // Send a signaling command to initialize as a host
             self.sendSignallingMessage(
@@ -1004,8 +1014,9 @@
 
         async initializeAsPeer(lobbyID, password) {
             const self = this;
-            if (self.mode == "host") return;
-            self.mode = "peer";
+            if ((self.mode == "host") || (self.mode == "configuring")) return;
+            self.mode = "configuring";
+            self.lobbyID = String(lobbyID);
 
             // Send a signaling command to initialize as a con
             self.sendSignallingMessage(
@@ -1036,26 +1047,94 @@
 
                 // Get session UUID for our client
                 case self.signalingOpcodes.INIT_OK:
+                    if (self.mode != null) return;
                     self.uuid = message.payload;
-                    console.log(`Got a session UUID: ${self.uuid}`);
+                    console.log(`Game server has generated a session UUID: ${self.uuid}`);
                     break;
 
                 // Handle host mode request
                 case self.signalingOpcodes.ACK_HOST:
-                    console.log('Client is initialized as a host!');
+                    if (self.mode != "configuring") return;
+                    self.mode = "host";
+                    console.log(`Client is now operating as a host. Hosting lobby \"${self.lobbyID}\".`);
                     break;
 
                 // Handle con mode request
                 case self.signalingOpcodes.ACK_PEER:
-                    console.log('Client is initialized as a peer!');
+                    if (self.mode != "configuring") return;
+                    self.mode = "peer";
+                    console.log('Client is now operating as a peer.');
+                    break;
+                
+                // Handle lobby exists
+                case self.signalingOpcodes.LOBBY_EXISTS:
+                    if (self.mode != "configuring") return;
+                    console.log(`Cannot create lobby \"${self.lobbyID}\": Lobby already exists.`);
+                    self.mode = null;
+                    self.lobbyID = null;
+                    break;
+                
+                // Handle lobby not found
+                case self.signalingOpcodes.LOBBY_NOTFOUND:
+                    if (self.mode != "configuring") return;
+                    console.log(`Cannot join lobby \"${self.lobbyID}\": Lobby not found.`);
+                    self.mode = null;
+                    self.lobbyID = null;
+                    break;
+                
+                // Handle lobby password required
+                case self.signalingOpcodes.PASSWORD_REQUIRED:
+                    if (self.mode != "configuring") return;
+                    console.log(`Cannot join lobby \"${self.lobbyID}\": Password required.`);
+                    self.mode = null;
+                    self.lobbyID = null;
+                    break;
+                
+                // Handle lobby password invalid
+                case self.signalingOpcodes.PASSWORD_FAIL:
+                    if (self.mode != "configuring") return;
+                    console.log(`Cannot join lobby \"${self.lobbyID}\": Password invalid.`);
+                    self.mode = null;
+                    self.lobbyID = null;
+                    break;
+                
+                // Handle lobby full
+                case self.signalingOpcodes.LOBBY_FULL:
+                    if (self.mode != "configuring") return;
+                    console.log(`Cannot join lobby \"${self.lobbyID}\": Lobby is full.`);
+                    self.mode = null;
+                    self.lobbyID = null;
+                    break;
+                
+                // Handle lobby locked
+                case self.signalingOpcodes.LOBBY_LOCKED:
+                    if (self.mode != "configuring") return;
+                    console.log(`Cannot join lobby \"${self.lobbyID}\": Lobby is locked, access denied.`);
+                    self.mode = null;
+                    self.lobbyID = null;
                     break;
 
                 // Handle host reclaim alerts
                 case self.signalingOpcodes.HOST_RECLAIM:
+                    if (self.mode != "peer") return;
                     if (self.uuid == message.payload.id) {
                         self.mode = "host";
-                        console.log(`The server has made you the host of lobby \"${message.payload.lobby_id}\".`);
+                        self.hostPeer = null;
+                        console.log(`The game server has made you the host of lobby \"${message.payload.lobby_id}\". Client is now operating as a host.`);
                     }
+                    break;
+                
+                // Handle lobby closure
+                case self.signalingOpcodes.LOBBY_CLOSE:
+                    if (self.mode != "peer") return;
+                    console.log(`The game server has closed the lobby \"${message.payload}\". Disconnecting from the game server.`);
+
+                    // Delete host object
+                    delete self.cons[self.hostPeer];
+                    self.hostPeer = null;
+
+                    // Close the connection to the server
+                    self.leave();
                     break;
 
                 // Handle con join requests
@@ -1109,6 +1188,9 @@
                         String(message.tx.id),
                         String(message.tx.username),
                     );
+
+                    // Set host peer
+                    self.hostPeer = String(message.tx.id);
 
                     // Create data channel
                     self.createChannelObject(

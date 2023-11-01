@@ -42,6 +42,10 @@ func (client *Client) MessageHandler(manager *Manager) {
 }
 
 func (manager *Manager) AbandonLobbies(client *Client) {
+	if client == nil {
+		panic("Cannot abandon lobby with a null client argument")
+	}
+
 	// Manage host state
 	if client.isHost {
 
@@ -61,7 +65,7 @@ func (manager *Manager) AbandonLobbies(client *Client) {
 
 		// Gather peers
 		manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
-		peers := manager.lobbies[client.lobbyID].Peers
+		peers := excludeClient(client, manager.lobbies[client.lobbyID].Peers)
 		manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 
 		// Notify peeers they can negotiate a new host on their own
@@ -69,7 +73,7 @@ func (manager *Manager) AbandonLobbies(client *Client) {
 			MulticastMessageArray(peers, JSONDump(&Packet{
 				Opcode:  Opcodes["HOST_GONE"],
 				Payload: client.lobbyID,
-			}), client)
+			}), nil)
 
 		} else if AllowHostReclaim { // Make the next entry in the peers slice the host
 
@@ -79,7 +83,7 @@ func (manager *Manager) AbandonLobbies(client *Client) {
 			manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 
 			// There must be at least one peer to make this work
-			if len(lobby.Peers) == 0 {
+			if len(peers) == 0 {
 
 				// Destroy the lobby
 				log.Printf("[%s] No peers left in lobby \"%s\", destroying lobby", manager.Name, client.lobbyID)
@@ -90,7 +94,7 @@ func (manager *Manager) AbandonLobbies(client *Client) {
 
 			} else {
 				manager.AcquireAccessLock(&manager.lobbiesMutex, "manager lobbies state")
-				lobby.Host = lobby.Peers[1]
+				lobby.Host = excludeClient(client, lobby.Peers)[0]
 				manager.FreeAccessLock(&manager.lobbiesMutex, "manager lobbies state")
 
 				// Update client state
@@ -110,7 +114,7 @@ func (manager *Manager) AbandonLobbies(client *Client) {
 						LobbyID:  client.lobbyID,
 						Username: lobby.Host.name,
 					},
-				}), client)
+				}), nil)
 			}
 
 		} else { // Close the lobby
@@ -119,7 +123,7 @@ func (manager *Manager) AbandonLobbies(client *Client) {
 			MulticastMessageArray(peers, JSONDump(&Packet{
 				Opcode:  Opcodes["LOBBY_CLOSE"],
 				Payload: client.lobbyID,
-			}), client)
+			}), nil)
 
 			// Delete host and destroy the lobby
 			log.Printf("[%s] Destroying lobby \"%s\"", manager.Name, client.lobbyID)
