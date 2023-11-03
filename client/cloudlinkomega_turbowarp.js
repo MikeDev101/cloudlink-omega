@@ -13,6 +13,7 @@
             this.newestPeer = {};
             this.lobbyID = null;
             this.hostPeer = null;
+            this.hasMicPerms = false;
             this.configuration = {
                 iceServers: [
                     // Omega STUN/TURN servers
@@ -148,7 +149,7 @@
                     },
                     "---",
                     {
-                        opcode: 'host',
+                        opcode: 'init_host_mode',
                         blockType: 'command',
                         text: 'Host a lobby named [LOBBY], set the peer limit to [PEERS], set password to [PASSWORD], and [CLAIMCONFIG]',
                         arguments: {
@@ -172,7 +173,7 @@
                         }
                     },
                     {
-                        opcode: 'peer',
+                        opcode: 'init_peer_mode',
                         blockType: 'command',
                         text: 'Join lobby [LOBBY] with password [PASSWORD]',
                         arguments: {
@@ -205,7 +206,7 @@
                     },
                     "---",
                     {
-                        opcode: "on_channel_message",
+                        opcode: "on_dchan_message",
                         blockType: "hat",
                         text: "When I get a message from peer [PEER] in channel [CHANNEL]",
                         isEdgeActivated: false,
@@ -346,7 +347,7 @@
                     },
                     "---",
                     {
-                        opcode: 'newchan',
+                        opcode: 'new_dchan',
                         blockType: 'command',
                         text: 'Open a new data channel named [CHANNEL] with peer [PEER] and make messages [ORDERED]',
                         arguments: {
@@ -366,7 +367,7 @@
                         },
                     },
                     {
-                        opcode: 'closechan',
+                        opcode: 'close_dchan',
                         blockType: 'command',
                         text: 'Close data channel named [CHANNEL] with peer [PEER]',
                         arguments: {
@@ -397,6 +398,66 @@
                         blockType: "command",
                         text: "Disconnect from game",
                     },
+                    "---",
+                    {
+                        opcode: "request_mic_perms",
+                        blockType: "command",
+                        text: "Request microphone access",
+                    },
+                    {
+                        opcode: "get_mic_perms",
+                        blockType: "reporter",
+                        text: "Do I have microphone access?",
+                    },
+                    {
+                        opcode: 'is_peer_vchan_open',
+                        blockType: 'Boolean',
+                        text: 'Connected to voice chat with peer [PEER]?',
+                        arguments: {
+                            PEER: {
+                                type: 'string',
+                                defaultValue: 'UUID',
+                            }
+                        }
+                    },
+                    {
+                        opcode: 'change_mic_state',
+                        blockType: 'command',
+                        text: '[MICSTATE] my microphone with peer [PEER]',
+                        arguments: {
+                            PEER: {
+                                type: 'string',
+                                defaultValue: 'UUID',
+                            },
+                            MICSTATE: {
+                                type: 'number',
+                                menu: 'micStateMenu',
+                                defaultValue: "1",
+                            },
+                        },
+                    },
+                    {
+                        opcode: 'new_vchan',
+                        blockType: 'command',
+                        text: 'Open a voice chat with peer [PEER]',
+                        arguments: {
+                            PEER: {
+                                type: 'string',
+                                defaultValue: 'UUID',
+                            },
+                        },
+                    },
+                    {
+                        opcode: 'close_vchan',
+                        blockType: 'command',
+                        text: 'Close voice chat with peer [PEER]',
+                        arguments: {
+                            PEER: {
+                                type: 'string',
+                                defaultValue: 'UUID',
+                            },
+                        },
+                    },
                 ],
                 menus: {
                     lobbyConfigMenu: {
@@ -413,6 +474,18 @@
                                 text: "allow peers to reclaim the lobby",
                                 value: "3",
                             }
+                        ],
+                    },
+                    micStateMenu: {
+                        items: [
+                            {
+                                text: "Mute",
+                                value: "1",
+                            },
+                            {
+                                text: "Unmute",
+                                value: "2",
+                            },
                         ],
                     },
                     channelConfig: {
@@ -452,6 +525,8 @@
             self.cons[peerUUID] = {
                 con: con,
                 chans: {},
+                vchan: null,
+                vstream: null,
                 nextchanid: 1,
                 uuid: peerUUID,
                 username: peerUsername,
@@ -540,6 +615,18 @@
                         break;
                 }
             };
+
+            // Log voice channel creation
+            con.onaddstream = (e) => {
+                console.log(`Peer \"${peerUsername}\" (${peerUUID}) opened voice chat!`);
+                const audioElement = document.createElement(`audio`);
+                audioElement.id = String(peerUUID);
+                audioElement.srcObject = e.stream;
+                audioElement.controls = true;
+                audioElement.autoplay = true;
+                document.body.appendChild(audioElement);
+                audioElement.play();
+            };  
         }
 
         initializeDataChannel(chan, con, peerUUID, peerUsername) {
@@ -819,7 +906,7 @@
                         break;
                     
                     // Create channel
-                    case "newchan":
+                    case "new_dchan":
                         self.createChannelObject(
                             String(message.payload.name),
                             message.payload.id,
@@ -1291,7 +1378,7 @@
             }
         }
 
-        on_channel_message(args, util) {
+        on_dchan_message(args, util) {
             const self = this;
             if (!self.cons.hasOwnProperty(args.PEER) || !self.cons[args.PEER].chans.hasOwnProperty(args.CHANNEL)) return false;
             if (self.cons[args.PEER].chans[args.CHANNEL].new) {
@@ -1350,7 +1437,7 @@
             return self.makeValueScratchSafe(channels);
         }
 
-        host(args, util) {
+        init_host_mode(args, util) {
             const self = this;
             if (!self.is_signalling_connected()) return;
 
@@ -1380,7 +1467,7 @@
             );
         }
 
-        peer(args, util) {
+        init_peer_mode(args, util) {
             const self = this;
             if (!self.is_signalling_connected()) return;
             self.initializeAsPeer(
@@ -1563,7 +1650,7 @@
             });
         }
 
-        newchan(args, util) {
+        new_dchan(args, util) {
             const self = this;
             return new Promise(async (resolve, reject) => {
                 if (!self.cons[args.PEER]) {
@@ -1590,7 +1677,7 @@
                     String(args.PEER)
                 ).send(
                     JSON.stringify({
-                        command: "newchan",
+                        command: "new_dchan",
                         payload: {
                             id: self.cons[String(args.PEER)].nextchanid,
                             ordered: (args.ORDERED == "1"),
@@ -1605,7 +1692,7 @@
             });
         }
 
-        closechan(args, util) {
+        close_dchan(args, util) {
             const self = this;
             return new Promise(async (resolve, reject) => {
                 if (!self.cons[args.PEER]) {
@@ -1693,10 +1780,56 @@
                 resolve();
             });
         }
+
+        // Request microphone permission
+        async request_mic_perms(args, util) {
+            const self = this;
+            self.hasMicPerms = false;
+            // Try to get microphone permission
+            try {
+                await navigator.mediaDevices.getUserMedia({audio: true});
+                self.hasMicPerms = true;
+            } catch (e) {
+                console.warn(`Failed to get microphone permission. ${e}`);
+                return;
+            }
+        }
+
+        get_mic_perms(args, util) {
+            const self = this;
+            return (self.hasMicPerms);
+        }
+
+        is_peer_vchan_open(args, util) {
+            const self = this;
+            let vchan = self.getConnectionObject(args.PEER).vchan;
+            return ((vchan != null) && (vchan.readyState == "live"));
+        }
+
+        change_mic_state(args, util) {
+            const self = this;
+            let peer = self.getConnectionObject(args.PEER);
+            peer.vstream.enabled = (args.MICSTATE == "2");
+        }
+
+        async new_vchan(args, util) {
+            const self = this;
+            let peer = self.getConnectionObject(args.PEER);
+            peer.vstream = new MediaStream(
+                await navigator.mediaDevices.getUserMedia({audio: true})
+            );
+            peer.con.addStream(peer.vstream);
+        }
+
+        close_vchan(args, util) {
+            const self = this;
+            let peer = self.getConnectionObject(args.PEER);
+            peer.vstream.getTracks().forEach((track) => track.stop());
+        }
     };
 
     Scratch.vm.runtime.on('BEFORE_EXECUTE', () => {
-        Scratch.vm.runtime.startHats('cloudlinkomega_on_channel_message');
+        Scratch.vm.runtime.startHats('cloudlinkomega_on_dchan_message');
         Scratch.vm.runtime.startHats('cloudlinkomega_on_channel_networked_list');
     });
 
