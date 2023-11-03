@@ -521,7 +521,6 @@
                             id: String(peerUUID),
                             username: String(peerUsername),
                         };
-                        self.runtime.startHats("cloudlinkomega_on_new_peer");
                         break;
                     
                     case "closing": break;
@@ -548,6 +547,11 @@
 
             chan.onopen = (e) => {
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) channel \"${chan.label}\" opened! Is this channel ordered: ${chan.ordered}, ID: ${chan.id}`);
+
+                // Broadcast fully connected state
+                if (chan.label == "default") {
+                    self.runtime.startHats("cloudlinkomega_on_new_peer");
+                }
 
                 // If we are the lobby host, find all other peers and notify newest peer of other peers existing (DISCOVERY protocol)
                 if (this.mode == "host" && chan.label == "default") {
@@ -1589,7 +1593,7 @@
                         command: "newchan",
                         payload: {
                             id: self.cons[String(args.PEER)].nextchanid,
-                            ordered: ordered,
+                            ordered: (args.ORDERED == "1"),
                             name: String(args.CHANNEL),
                         }
                     })
