@@ -617,11 +617,11 @@
             };
 
             // Log voice channel creation
-            con.onaddstream = (e) => {
+            con.ontrack = (e) => {
                 console.log(`Peer \"${peerUsername}\" (${peerUUID}) opened voice chat!`);
                 const audioElement = document.createElement(`audio`);
                 audioElement.id = String(peerUUID);
-                audioElement.srcObject = e.stream;
+                audioElement.srcObject = e.streams[0];
                 audioElement.controls = true;
                 audioElement.autoplay = true;
                 document.body.appendChild(audioElement);
@@ -1808,22 +1808,22 @@
 
         change_mic_state(args, util) {
             const self = this;
-            let peer = self.getConnectionObject(args.PEER);
+            let peer = self.getConnectionState(args.PEER);
             peer.vstream.enabled = (args.MICSTATE == "2");
         }
 
         async new_vchan(args, util) {
             const self = this;
-            let peer = self.getConnectionObject(args.PEER);
+            let peer = self.getConnectionState(args.PEER);
             peer.vstream = new MediaStream(
                 await navigator.mediaDevices.getUserMedia({audio: true})
             );
-            peer.con.addStream(peer.vstream);
+            peer.vstream.getTracks().forEach((track) => peer.con.addTrack(track));
         }
 
         close_vchan(args, util) {
             const self = this;
-            let peer = self.getConnectionObject(args.PEER);
+            let peer = self.getConnectionState(args.PEER);
             peer.vstream.getTracks().forEach((track) => track.stop());
         }
     };
