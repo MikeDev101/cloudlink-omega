@@ -65,17 +65,7 @@ func (manager *Manager) FreeAccessLock(lock *sync.RWMutex, something string) {
 }
 
 func removePeer(lobby *Lobby, target *Client) {
-	slice := lobby.Peers
-	for i, value := range slice {
-		if value == target {
-			// Swap the element to remove with the last element
-			slice[i] = slice[len(slice)-1]
-
-			// Remove the last element
-			slice = slice[:len(slice)-1]
-			lobby.Peers = slice
-		}
-	}
+	lobby.Peers = excludeClient(target, lobby.Peers)
 }
 
 func NewPeer(lobbyID string, client *Client, manager *Manager) bool {
