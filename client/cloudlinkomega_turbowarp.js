@@ -549,25 +549,31 @@
         // Provide a common function for creating a WebRTC data channel.
         createChannelObject(channelName, channelID, channelOrdered, peerUUID, peerUsername) {
             const self = this;
-            let con = self.getConnectionObject(peerUUID);
-            let chan = con.createDataChannel(
-                channelName,
-                {
-                    ordered: channelOrdered,
-                    negotiated: true,
-                    id: channelID,
+            return new Promise((resolve, reject) => {
+                try {
+                    let con = self.getConnectionObject(peerUUID);
+                    let chan = con.createDataChannel(
+                        channelName,
+                        {
+                            ordered: channelOrdered,
+                            negotiated: true,
+                            id: channelID,
+                        }
+                    );
+                    self.cons[peerUUID].chans[channelName] = {
+                        chan: chan,
+                        lists: {},
+                        vars: {},
+                        networked_lists: {},
+                        new: false,
+                        value: "",
+                    };
+                    self.initializeDataChannel(chan, con, peerUUID, peerUsername);
+                    resolve(self.getChannelObject(channelName, peerUUID));
+                } catch (e) {
+                    reject(e);
                 }
-            );
-            self.cons[peerUUID].chans[channelName] = {
-                chan: chan,
-                lists: {},
-                vars: {},
-                networked_lists: {},
-                new: false,
-                value: "",
-            };
-            self.initializeDataChannel(chan, con, peerUUID, peerUsername);
-            return self.getChannelObject(channelName, peerUUID);
+            })
         }
 
         // Provide a common function for accessing channel data/states.
@@ -1407,8 +1413,7 @@
 
         is_peer_connected(args, util) {
             const self = this;
-            if (args.PEER in Object.keys(self.cons)) return true;
-            return false;
+            return self.cons.hasOwnProperty(args.PEER);
         }
 
         get_peers(args, util) {
