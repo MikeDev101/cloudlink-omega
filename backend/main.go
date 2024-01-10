@@ -158,13 +158,12 @@ func HelloWorld(w http.ResponseWriter, r *http.Request) {
 // @title CloudLink Omega API
 // @version 1.0
 // @description This API defines the various endpoints that can be used to interact with the CL Omega API.
-// @termsOfService http://omega.mikedev101.cc/tos
 //
 // @contact.name Mike J. Renaker "MikeDEV"
 // @contact.email mikierules109@gmail.com
 //
-// @license.name CC-BY-SA-4.0
-// @license.url https://github.com/mikedev101/clomega-backend/blob/main/LICENSE.txt
+// @license.name MIT
+// @license.url https://github.com/mikedev101/cloudlink-omega/blob/main/LICENSE
 //
 // @host localhost:8080
 // @BasePath /docs
