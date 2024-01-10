@@ -12,7 +12,7 @@ for a template.
 You will need to build `./docs` with Swagger before running. 
 
 If you want a quick-and-dirty test, I've included a prebuilt
-Ubuntu x64 binary; Simply run `./clomega`.
+Ubuntu x64 binary; Simply run `./clomega` (requires a valid `.env`).
 
 ## Database
 This backend code was designed with a MariaDB server in mind.
