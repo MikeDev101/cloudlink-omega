@@ -1,4 +1,7 @@
-
+*.code-workspace
+*.env
 *.crt
 *.key
 *.zip
+backend/swag/*
+backend/docs/*
