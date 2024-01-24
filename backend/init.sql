@@ -3,6 +3,7 @@
 SET NAMES utf8;
 SET time_zone = '+00:00';
 SET foreign_key_checks = 0;
+SET sql_mode = 'NO_AUTO_VALUE_ON_ZERO';
 
 CREATE DATABASE `clomega` /*!40100 DEFAULT CHARACTER SET utf16 COLLATE utf16_unicode_ci */;
 USE `clomega`;
@@ -243,4 +244,78 @@ END;;
 
 DELIMITER ;
 
--- 2024-01-10 02:15:51
+CREATE TABLE `admins` (
+  `userid` char(26) NOT NULL COMMENT 'ULID',
+  `state` bit(16) NOT NULL DEFAULT b'0',
+  KEY `userid` (`userid`),
+  CONSTRAINT `admins_ibfk_1` FOREIGN KEY (`userid`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf16 COLLATE=utf16_unicode_ci;
+
+
+CREATE TABLE `developers` (
+  `id` char(26) NOT NULL COMMENT 'ULID',
+  `name` tinytext NOT NULL,
+  `state` bit(16) NOT NULL DEFAULT b'0',
+  PRIMARY KEY (`id`),
+  CONSTRAINT `CONSTRAINT_1` CHECK (`name` is not null)
+) ENGINE=InnoDB DEFAULT CHARSET=utf16 COLLATE=utf16_unicode_ci;
+
+
+CREATE TABLE `developers_members` (
+  `developerid` char(26) NOT NULL COMMENT 'ULID',
+  `userid` char(26) NOT NULL COMMENT 'ULID',
+  KEY `developerid` (`developerid`),
+  KEY `userid` (`userid`),
+  CONSTRAINT `developers_members_ibfk_1` FOREIGN KEY (`developerid`) REFERENCES `developers` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `developers_members_ibfk_2` FOREIGN KEY (`userid`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf16 COLLATE=utf16_unicode_ci;
+
+
+CREATE TABLE `games` (
+  `id` char(26) NOT NULL COMMENT 'ULID',
+  `developerid` char(26) NOT NULL COMMENT 'ULID',
+  `name` tinytext NOT NULL,
+  `state` bit(16) NOT NULL DEFAULT b'0',
+  PRIMARY KEY (`id`),
+  KEY `developerid` (`developerid`),
+  CONSTRAINT `games_ibfk_1` FOREIGN KEY (`developerid`) REFERENCES `developers` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf16 COLLATE=utf16_unicode_ci;
+
+
+CREATE TABLE `games_authorized_origins` (
+  `gameid` char(26) NOT NULL,
+  `origin` tinytext NOT NULL,
+  `state` bit(16) NOT NULL,
+  KEY `gameid` (`gameid`),
+  CONSTRAINT `games_authorized_origins_ibfk_1` FOREIGN KEY (`gameid`) REFERENCES `games` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf16 COLLATE=utf16_unicode_ci;
+
+
+CREATE TABLE `sessions` (
+  `id` char(26) NOT NULL COMMENT 'ULID',
+  `userid` char(26) NOT NULL COMMENT 'ULID',
+  `created` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00' ON UPDATE current_timestamp(),
+  `expires` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00' ON UPDATE current_timestamp(),
+  `state` bit(16) NOT NULL DEFAULT b'0',
+  `origin` tinytext NOT NULL COMMENT 'IP address',
+  PRIMARY KEY (`id`),
+  KEY `userid` (`userid`),
+  CONSTRAINT `sessions_ibfk_1` FOREIGN KEY (`userid`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf16 COLLATE=utf16_unicode_ci;
+
+
+CREATE TABLE `users` (
+  `id` char(26) NOT NULL COMMENT 'ULID',
+  `username` tinytext NOT NULL COMMENT 'Used for login',
+  `password` text NOT NULL COMMENT 'Scrypt Hash',
+  `gamertag` tinytext NOT NULL COMMENT 'Changable',
+  `email` tinytext NOT NULL COMMENT 'Required for alerts',
+  `created` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00' ON UPDATE current_timestamp() COMMENT 'Keep track of account creation dates',
+  `state` bit(16) NOT NULL DEFAULT b'0' COMMENT 'Various flags for the account',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `username` (`username`) USING HASH,
+  UNIQUE KEY `email` (`email`) USING HASH
+) ENGINE=InnoDB DEFAULT CHARSET=utf16 COLLATE=utf16_unicode_ci;
+
+
+-- 2024-01-24 21:37:29
