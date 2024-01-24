@@ -16,11 +16,7 @@
             this.hasMicPerms = false;
             this.configuration = {
                 iceServers: [
-                    // Omega STUN/TURN servers
-                    { urls: 'stun:stun.mikedev101.cc:3478' },
-                    { urls: 'turn:stun.mikedev101.cc:3478', username: 'foobar', credential: 'foobar' },
-
-                    // Google STUN server in case Omega STUN server is unavailable/overloaded
+                    // Google STUN server
                     { urls: 'stun:stun.l.google.com:19302' },
                 ]
             }
