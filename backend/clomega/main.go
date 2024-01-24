@@ -19,6 +19,9 @@ func New(router *gin.Engine, apipath string, config Config) *gin.RouterGroup {
 		// Register the API paths defined in api.go
 		api.POST("/login", CreateSessionHandler)
 		api.POST("/register", CreateUserHandler)
+
+		// Register the signaling websocket handler
+		api.GET("/signaling", websocketHandler)
 	}
 
 	return api
