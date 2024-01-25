@@ -21,7 +21,7 @@ func New(router *gin.Engine, apipath string, config Config) *gin.RouterGroup {
 		api.POST("/register", CreateUserHandler)
 
 		// Register the signaling websocket handler
-		api.GET("/signaling", websocketHandler)
+		api.GET("/signaling", signalingHandler)
 	}
 
 	return api
