@@ -16,6 +16,7 @@ var ErrSessionNotFound = errors.New("session not found")
 var ErrEmailInUse = errors.New("email in use")
 var ErrUsernameInUse = errors.New("username taken")
 var ErrDatabaseError = errors.New("database error")
+var ErrGameNotFound = errors.New("game not found")
 
 // CreateUser creates a new user with the provided username, hash, gamertag, and email.
 //
@@ -190,4 +191,30 @@ func GetUserPassword(db *sql.DB, userID string) (passwordHash string, err error)
 	}
 
 	return passwordHash, nil
+}
+
+func GetUGIInfo(db *sql.DB, ugi string) (game_name string, developer_name string, err error) {
+	var stmt *sql.Stmt
+	var result struct {
+		game_name      string
+		developer_name string
+	}
+
+	stmt, err = db.Prepare("CALL getGameInfo(?)")
+	if err != nil {
+		return "", "", ErrDatabaseError
+	}
+
+	// Get game_name and developer_name
+	err = stmt.QueryRow(ugi).Scan(&result.game_name, &result.developer_name)
+	if err != nil {
+		// Game not found
+		if err == sql.ErrNoRows {
+			return "", "", ErrGameNotFound
+		}
+		return "", "", ErrDatabaseError
+	}
+
+	// Return game_name and developer_name
+	return result.game_name, result.developer_name, nil
 }

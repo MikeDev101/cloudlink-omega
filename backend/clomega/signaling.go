@@ -14,6 +14,20 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:     AuthorizedOrigins,
 }
 
+type Client struct {
+	Conn          *websocket.Conn
+	UGI           string
+	Authorization string // ULID session token
+	Gamertag      string
+	ID            string
+	Expiry        int // UNIX time
+	ValidSession  bool
+}
+
+func (c *Client) Delete() {
+	c = nil
+}
+
 // AuthorizedOrigins is a Go function that implements CORS. It queries the database for authorized origins.
 //
 // r *http.Request
@@ -55,10 +69,22 @@ func signalingHandler(c *gin.Context) {
 
 	fmt.Printf("%s connecting to game %s\n", conn.RemoteAddr(), string(ugi))
 
-	// TODO: verify validity of provided UGI
+	// Verify validity of provided UGI and get game_name and developer_name
+	game_name, developer_name, err := GetUGIInfo(GlobalConfig.Database, ugi)
+	if err != nil {
+		CloseWithViolationCode(conn, err.Error())
+		return
+	}
+
+	// Log connected game
+	fmt.Printf("%s connected to \"%s\" by \"%s\"", conn.RemoteAddr(), game_name, developer_name)
+
+	// Create client
+	client := &Client{Conn: conn, UGI: ugi}
 
 	// Handle connection with websocket
-	messageHandler(conn)
+	defer client.Delete()
+	client.messageHandler()
 }
 
 // messageHandler handles incoming messages from the browser using a websocket connection.
@@ -68,26 +94,26 @@ func signalingHandler(c *gin.Context) {
 //	conn *websocket.Conn - the websocket connection
 //
 // Return type(s): None
-func messageHandler(conn *websocket.Conn) {
+func (c *Client) messageHandler() {
 	var err error
-	defer conn.Close()
+	defer c.Conn.Close()
 	for {
 		// Read messages from browser as JSON using SignalPacket struct.
 		packet := SignalPacket{}
-		if err = conn.ReadJSON(&packet); err != nil {
+		if err = c.Conn.ReadJSON(&packet); err != nil {
 			errstring := fmt.Sprintf("Error reading packet: %s", err)
 			fmt.Println(errstring)
-			CloseWithViolationCode(conn, errstring)
+			CloseWithViolationCode(c.Conn, errstring)
 			return
 		}
 
 		// Print the message to the console
-		// fmt.Printf("%s sent: %s\n", conn.RemoteAddr(), packet)
+		// fmt.Printf("%s sent: %s\n", c.Conn.RemoteAddr(), packet)
 
 		// TODO: handle packet
 
 		// Write message back to browser
-		if err = conn.WriteJSON(packet); err != nil {
+		if err = c.Conn.WriteJSON(packet); err != nil {
 			fmt.Printf("Error writing packet: %s\n", err)
 			return
 		}
