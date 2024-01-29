@@ -40,7 +40,8 @@ This requires a valid account on the server, and a valid session token provided 
 ### `INIT_OK`
 This response code is returned by the server upon successful authentication. 
 
-The payload contains information about your current gamertag (`user`) and account ULID (`id`).
+The payload contains information about your current gamertag (`user`) and account ULID (`id`), as well as
+metadata about the connected game.
 
 Use the `id` parameter value to identify sessions and to negotiate WebRTC connections using the signaling server.
 
@@ -50,6 +51,8 @@ Use the `id` parameter value to identify sessions and to negotiate WebRTC connec
 	payload: {
 		user: string, // Provided for human-friendly identification
 		id: string, // Required to identify/relay requests to other peers on the signaling server
+		game: string, // Game name
+		developer: string, // Developer of game
 	},
 }
 ```
@@ -130,8 +133,8 @@ This message is sent when the server has made a peer the new host of a lobby.
 |--------|-------------|
 | VIOLATION | Protocol exception. |
 | KEEPALIVE | Ping/pong. |
-| INIT | Requests a Session UUID by offering a username. |
-| INIT_OK | Returns a Session UUID from the server. |
+| INIT | Authenticates the connection given a valid login token. |
+| INIT_OK | Returns game info and username data upon successful login. |
 | CONFIG_HOST | Tells the server to make the client a game host, and create a lobby. |
 | CONFIG_PEER | Tells the server to make the client a game peer, and join a lobby. |
 | ACK_HOST | Server replied to host request, made the client a host, and has created a lobby. |
