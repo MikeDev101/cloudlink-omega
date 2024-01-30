@@ -84,17 +84,17 @@ func signalingHandler(c *gin.Context) {
 
 	// Handle connection with websocket
 	defer client.Delete()
-	client.messageHandler()
+	client.MessageHandler()
 }
 
-// messageHandler handles incoming messages from the browser using a websocket connection.
+// MessageHandler handles incoming messages from the browser using a websocket connection.
 //
 // Parameter(s):
 //
 //	conn *websocket.Conn - the websocket connection
 //
 // Return type(s): None
-func (c *Client) messageHandler() {
+func (c *Client) MessageHandler() {
 	var err error
 	defer c.Conn.Close()
 	for {
@@ -110,7 +110,11 @@ func (c *Client) messageHandler() {
 		// Print the message to the console
 		// fmt.Printf("%s sent: %s\n", c.Conn.RemoteAddr(), packet)
 
-		// TODO: handle packet
+		// Handle packet
+		switch packet.Opcode {
+		case "INIT":
+			c.HandleInitOpcode(&packet)
+		}
 
 		// Write message back to browser
 		if err = c.Conn.WriteJSON(packet); err != nil {
@@ -118,4 +122,19 @@ func (c *Client) messageHandler() {
 			return
 		}
 	}
+}
+
+func (c *Client) HandleInitOpcode(message *SignalPacket) {
+	// Check if message.Payload is a string
+	if _, ok := message.Payload.(string); !ok {
+		// Return error if message.Payload is not a string
+		CloseWithViolationCode(c.Conn, "Payload (ULID token) is not a string. See documentation.")
+		return
+	}
+
+	// TODO: Check if the token is valid in the DB
+}
+
+func (c *Client) SendMessage(opcode string, message any, recipient string, origin string) {
+	c.Conn.WriteJSON(SignalPacket{Opcode: opcode, Payload: message, Recipient: recipient, Origin: origin})
 }
