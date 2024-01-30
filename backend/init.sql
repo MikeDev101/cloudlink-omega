@@ -129,6 +129,24 @@ BEGIN
     SELECT 'OK' AS result;
 END;;
 
+DROP PROCEDURE IF EXISTS `createGame`;;
+CREATE PROCEDURE `createGame`(IN `developerUlidParam` char(26), IN `gameName` tinytext)
+BEGIN
+    DECLARE gameUlid CHAR(26);
+
+    -- Get developer ID based on ULID
+    IF (SELECT COUNT(*) FROM developers WHERE id = developerUlidParam) = 0 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'DEVELOPER_ULID_NOTFOUND';
+    END IF;
+
+    -- Create the game entry ---
+    SET gameUlid = ULID_FROM_DATETIME(NOW());
+    INSERT INTO games(id, developerid, name, created)
+        VALUES (gameUlid, developerUlidParam, gameName, NOW());
+        SELECT 'OK' AS result;
+END;;
+
 DROP PROCEDURE IF EXISTS `createSession`;;
 CREATE PROCEDURE `createSession`(IN `userUlid` char(26), IN `originParam` tinytext)
 BEGIN
@@ -169,6 +187,14 @@ BEGIN
 
     SELECT 'OK' AS result;
 END;;
+
+DROP PROCEDURE IF EXISTS `getGameInfo`;;
+CREATE PROCEDURE `getGameInfo`(IN `ulidParam` char(26))
+SELECT g.name AS game_name, d.name AS developer_name
+FROM games g
+JOIN developers d ON g.developerid = d.id
+WHERE g.id = ulidParam
+LIMIT 1;;
 
 DROP PROCEDURE IF EXISTS `getUserPassword`;;
 CREATE PROCEDURE `getUserPassword`(IN `userUlid` char(26))
@@ -242,6 +268,12 @@ BEGIN
     SELECT 'OK' AS result;
 END;;
 
+DROP PROCEDURE IF EXISTS `verifySession`;;
+CREATE PROCEDURE `verifySession`(IN `ulidToken` char(26))
+SELECT (s.expires <= CURRENT_TIMESTAMP()) AS expired
+FROM sessions s
+WHERE s.id = ulidToken;;
+
 DELIMITER ;
 
 CREATE TABLE `admins` (
@@ -276,6 +308,7 @@ CREATE TABLE `games` (
   `developerid` char(26) NOT NULL COMMENT 'ULID',
   `name` tinytext NOT NULL,
   `state` bit(16) NOT NULL DEFAULT b'0',
+  `created` timestamp NOT NULL,
   PRIMARY KEY (`id`),
   KEY `developerid` (`developerid`),
   CONSTRAINT `games_ibfk_1` FOREIGN KEY (`developerid`) REFERENCES `developers` (`id`) ON DELETE CASCADE
@@ -288,6 +321,28 @@ CREATE TABLE `games_authorized_origins` (
   `state` bit(16) NOT NULL,
   KEY `gameid` (`gameid`),
   CONSTRAINT `games_authorized_origins_ibfk_1` FOREIGN KEY (`gameid`) REFERENCES `games` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf16 COLLATE=utf16_unicode_ci;
+
+
+CREATE TABLE `ip_blocklist` (
+  `address` tinytext NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf16 COLLATE=utf16_unicode_ci;
+
+
+CREATE TABLE `ip_whitelist` (
+  `address` tinytext NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf16 COLLATE=utf16_unicode_ci;
+
+
+CREATE TABLE `saves` (
+  `userid` char(26) NOT NULL,
+  `gameid` char(26) NOT NULL,
+  `slotid` tinyint(3) unsigned NOT NULL,
+  `contents` varchar(10000) NOT NULL,
+  KEY `gameid` (`gameid`),
+  KEY `userid` (`userid`),
+  CONSTRAINT `saves_ibfk_1` FOREIGN KEY (`gameid`) REFERENCES `games` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `saves_ibfk_2` FOREIGN KEY (`userid`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf16 COLLATE=utf16_unicode_ci;
 
 
@@ -318,4 +373,4 @@ CREATE TABLE `users` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf16 COLLATE=utf16_unicode_ci;
 
 
--- 2024-01-24 21:37:29
+-- 2024-01-30 17:53:15
