@@ -1,5 +1,5 @@
 # Backend
-CloudLink Omega utilizes net/http for it's API. 
+CloudLink Omega utilizes gin for it's API. 
 
 ## Basics
 All requests are either `text/plain` or `application/json`.
@@ -10,9 +10,6 @@ Configuration is done via an environment variables file. See `.env.example`
 for a template.
 
 You will need to build `./docs` with Swagger before running. 
-
-If you want a quick-and-dirty test, I've included a prebuilt
-Ubuntu x64 binary; Simply run `./clomega` (requires a valid `.env`).
 
 ## Database
 This backend code was designed with a MariaDB server in mind.
