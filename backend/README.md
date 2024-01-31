@@ -1,5 +1,5 @@
 # Backend
-CloudLink Omega utilizes gin for it's API. 
+CL Omega utilizes chi for it's API. 
 
 ## Basics
 All requests are either `text/plain` or `application/json`.

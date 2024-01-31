@@ -1,0 +1,79 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "This API defines the various endpoints that can be used to interact with the CL Omega API.",
+        "title": "CloudLink Omega API",
+        "contact": {
+            "name": "Mike J. Renaker \"MikeDEV\"",
+            "email": "mikierules109@gmail.com"
+        },
+        "license": {
+            "name": "MIT",
+            "url": "https://github.com/mikedev101/cloudlink-omega/blob/main/LICENSE"
+        },
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/",
+    "paths": {
+        "/api/login": {
+            "post": {
+                "description": "This endpoint takes a username and password and returns a session token if the login is successful.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Login",
+                "parameters": [
+                    {
+                        "description": "Login information",
+                        "name": "login",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/clomega.Login"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "(ULID)",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Invalid password.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "USER_NOTFOUND",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "clomega.Login": {
+            "type": "object",
+            "properties": {
+                "password": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

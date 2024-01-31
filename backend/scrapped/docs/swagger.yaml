@@ -1,0 +1,54 @@
+basePath: /
+definitions:
+  clomega.Login:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: mikierules109@gmail.com
+    name: Mike J. Renaker "MikeDEV"
+  description: This API defines the various endpoints that can be used to interact
+    with the CL Omega API.
+  license:
+    name: MIT
+    url: https://github.com/mikedev101/cloudlink-omega/blob/main/LICENSE
+  title: CloudLink Omega API
+  version: "1.0"
+paths:
+  /api/login:
+    post:
+      consumes:
+      - application/json
+      description: This endpoint takes a username and password and returns a session
+        token if the login is successful.
+      parameters:
+      - description: Login information
+        in: body
+        name: login
+        required: true
+        schema:
+          $ref: '#/definitions/clomega.Login'
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: (ULID)
+          schema:
+            type: string
+        "401":
+          description: Invalid password.
+          schema:
+            type: string
+        "404":
+          description: USER_NOTFOUND
+          schema:
+            type: string
+      summary: Login
+      tags:
+      - Sessions
+swagger: "2.0"
