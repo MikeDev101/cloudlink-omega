@@ -2,24 +2,15 @@ package data
 
 import (
 	"database/sql"
-	"fmt"
 	"log"
-
-	_ "github.com/go-sql-driver/mysql"
 )
 
 type Manager struct {
 	DB *sql.DB
 }
 
-func New(dbUser string, dbPassword string, dbHost string, dbDatabase string) *Manager {
-
-	// Define a formattable string with placeholders for environment variables
-	var formattableString = "%s:%s@tcp(%s)/%s"
-
-	// Format the string with the environment variables
-	formattedString := fmt.Sprintf(formattableString, dbUser, dbPassword, dbHost, dbDatabase)
-	db, err := sql.Open("mysql", formattedString)
+func New(sqlDriver string, sqlUrl string) *Manager {
+	db, err := sql.Open(sqlDriver, sqlUrl)
 
 	if err != nil {
 		log.Fatal("Failed to open database:", err)
@@ -32,7 +23,7 @@ func New(dbUser string, dbPassword string, dbHost string, dbDatabase string) *Ma
 		return nil
 	}
 
-	log.Printf("Successfully connected to database: %s/%s", dbHost, dbDatabase)
+	log.Printf("Successfully connected to database")
 
 	// Create manager
 	mgr := &Manager{

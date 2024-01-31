@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -8,6 +9,8 @@ import (
 	godotenv "github.com/joho/godotenv"
 	api "github.com/mikedev101/cloudlink-omega/backend/pkg/api"
 	dm "github.com/mikedev101/cloudlink-omega/backend/pkg/data"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 func main() {
@@ -19,8 +22,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialise data manager
-	mgr := dm.New(os.Getenv("DB_USER"), os.Getenv("DB_PASS"), os.Getenv("DB_HOST"), os.Getenv("DATABASE"))
+	// Initialize data manager
+	mgr := dm.New(
+		"mysql",
+		fmt.Sprintf(
+			"%s:%s@tcp(%s)/%s",
+			os.Getenv("DB_USER"),
+			os.Getenv("DB_PASS"),
+			os.Getenv("DB_HOST"),
+			os.Getenv("DATABASE"),
+		),
+	)
 
 	// Create wait group
 	var wg sync.WaitGroup
