@@ -1,53 +1,36 @@
 package data
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/huandu/go-sqlbuilder"
 )
 
 func (mgr *Manager) initDB() {
-	log.Print("Please wait, initializing DB...")
+	log.Print("Database initializing...")
 	mgr.createUsersTable()
 	mgr.createDevelopersTable()
 	mgr.createGamesTable()
-	log.Print("DB Initialized!")
+	mgr.createAdminsTable()
+	mgr.createSessionsTable()
+	mgr.createSavesTable()
+	mgr.createGamesAuthorizedOriginsTable()
+	mgr.createDeveloperMembersTable()
+	mgr.createIPWhitelistTable()
+	mgr.createIPBlocklistTable()
+	log.Print("Database initialized!")
 }
 
-func (mgr *Manager) tableExists(tableName string) (bool, error) {
-	// Build a raw SQL query to check if the table exists
-	query := fmt.Sprintf("SELECT name FROM sqlite_master WHERE type='table' AND name='%s'", tableName)
-
-	// Execute the query
-	rows, err := mgr.DB.Query(query)
-	if err != nil {
-		return false, err
-	}
-	defer rows.Close()
-
-	// Check if the table exists based on the query result
-	return rows.Next(), nil
-}
-
-func (mgr *Manager) buildTable(sb *sqlbuilder.CreateTableBuilder) {
+func (mgr *Manager) buildTable(tablename string, sb *sqlbuilder.CreateTableBuilder) {
 	query, args := sb.Build()
 	if _, err := mgr.DB.Query(query, args...); err != nil {
-		log.Printf(`[ERROR: %s] %s`, query, err)
+		log.Printf(`[FAILED] %s (%s)`, tablename, err)
 	} else {
-		log.Printf(`[ OK ] %s`, query)
+		log.Printf(`[PASSED] %s`, tablename)
 	}
 }
 
 func (mgr *Manager) createGamesTable() {
-	if exists, err := mgr.tableExists("games"); err != nil {
-		log.Printf("Error: %s", err)
-		return
-	} else if exists {
-		log.Print("Games table already exists. Skipping...")
-		return
-	}
-
 	sb := sqlbuilder.NewCreateTableBuilder()
 	sb.CreateTable("games").IfNotExists().
 		Define(
@@ -70,7 +53,7 @@ func (mgr *Manager) createGamesTable() {
 			`created`,
 			`INTEGER NOT NULL DEFAULT CURRENT_TIMESTAMP`, // UNIX Timestamp
 		)
-	mgr.buildTable(sb)
+	mgr.buildTable("games", sb)
 }
 
 func (mgr *Manager) createDevelopersTable() {
@@ -92,7 +75,7 @@ func (mgr *Manager) createDevelopersTable() {
 			`created`,
 			`INTEGER NOT NULL DEFAULT CURRENT_TIMESTAMP`, // UNIX Timestamp
 		)
-	mgr.buildTable(sb)
+	mgr.buildTable("developers", sb)
 }
 
 func (mgr *Manager) createUsersTable() {
@@ -118,5 +101,127 @@ func (mgr *Manager) createUsersTable() {
 			`created`,
 			`INTEGER NOT NULL DEFAULT CURRENT_TIMESTAMP`, // UNIX Timestamp
 		)
-	mgr.buildTable(sb)
+	mgr.buildTable("users", sb)
+}
+
+func (mgr *Manager) createAdminsTable() {
+	sb := sqlbuilder.NewCreateTableBuilder()
+	sb.CreateTable("admins").IfNotExists().
+		Define(
+			`userid`,
+			`CHAR(26) NOT NULL REFERENCES users(id)`, // ULID string
+		).
+		Define(
+			`state`,
+			`SMALLINT NOT NULL DEFAULT 0`, // 2 Bytes or 16 Bits, used as a bitfield
+		).
+		Define(
+			`created`,
+			`INTEGER NOT NULL DEFAULT CURRENT_TIMESTAMP`, // UNIX Timestamp
+		)
+	mgr.buildTable("admins", sb)
+}
+
+func (mgr *Manager) createSessionsTable() {
+	sb := sqlbuilder.NewCreateTableBuilder()
+	sb.CreateTable("sessions").IfNotExists().
+		Define(
+			`id`,
+			`CHAR(26) PRIMARY KEY NOT NULL`, // ULID string
+		).
+		Define(
+			`userid`,
+			`CHAR(26) NOT NULL REFERENCES users(id)`, // ULID string
+		).
+		Define(
+			`state`,
+			`SMALLINT NOT NULL DEFAULT 0`, // 2 Bytes or 16 Bits, used as a bitfield
+		).
+		Define(
+			`created`,
+			`INTEGER NOT NULL DEFAULT CURRENT_TIMESTAMP`, // UNIX Timestamp
+		).
+		Define(
+			`expires`,
+			`INTEGER NOT NULL DEFAULT (CURRENT_TIMESTAMP + 86400)`, // UNIX Timestamp + 24 hours
+		).
+		Define(
+			`origin`,
+			`TINYTEXT NOT NULL DEFAULT ''`, // 255 maximum length, IP address
+		)
+	mgr.buildTable("sessions", sb)
+}
+
+func (mgr *Manager) createSavesTable() {
+	sb := sqlbuilder.NewCreateTableBuilder()
+	sb.CreateTable("saves").IfNotExists().
+		Define(
+			`userid`,
+			`CHAR(26) NOT NULL REFERENCES users(id)`, // ULID string
+		).
+		Define(
+			`gameid`,
+			`CHAR(26) NOT NULL REFERENCES games(id)`, // ULID string
+		).
+		Define(
+			`slotid`,
+			`UNSIGNED TINYINT NOT NULL DEFAULT 0`, // 10 save slots, using 0-9 index.
+		).
+		Define(
+			`contents`,
+			`VARCHAR(10000) NOT NULL DEFAULT ''`, // Any desired format, within 10,000 characters
+		)
+	mgr.buildTable("saves", sb)
+}
+
+func (mgr *Manager) createGamesAuthorizedOriginsTable() {
+	sb := sqlbuilder.NewCreateTableBuilder()
+	sb.CreateTable("games_authorized_origins").IfNotExists().
+		Define(
+			`gameid`,
+			`CHAR(26) NOT NULL REFERENCES games(id)`, // ULID string
+		).
+		Define(
+			`origin`,
+			`TINYTEXT NOT NULL DEFAULT ''`, // IP address
+		).
+		Define(
+			`state`,
+			`SMALLINT NOT NULL DEFAULT 0`, // 2 Bytes or 16 Bits, used as a bitfield
+		)
+	mgr.buildTable("games_authorized_origins", sb)
+}
+
+func (mgr *Manager) createDeveloperMembersTable() {
+	sb := sqlbuilder.NewCreateTableBuilder()
+	sb.CreateTable("developer_members").IfNotExists().
+		Define(
+			`developerid`,
+			`CHAR(26) NOT NULL REFERENCES developers(id)`, // ULID string
+		).
+		Define(
+			`userid`,
+			`CHAR(26) NOT NULL REFERENCES users(id)`, // ULID string
+		)
+	mgr.buildTable("developer_members", sb)
+}
+
+func (mgr *Manager) createIPBlocklistTable() {
+	sb := sqlbuilder.NewCreateTableBuilder()
+	sb.CreateTable("ip_blocklist").IfNotExists().
+		Define(
+			`address`,
+			`TINYTEXT NOT NULL`, // IP address
+		)
+	mgr.buildTable("ip_blocklist", sb)
+}
+
+func (mgr *Manager) createIPWhitelistTable() {
+	sb := sqlbuilder.NewCreateTableBuilder()
+	sb.CreateTable("ip_whitelist").IfNotExists().
+		Define(
+			`address`,
+			`TINYTEXT NOT NULL`, // IP address
+		)
+	mgr.buildTable("ip_whitelist", sb)
 }
