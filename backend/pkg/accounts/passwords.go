@@ -10,8 +10,8 @@ import (
 //
 // It takes a string parameter `password` which is the password to be hashed.
 // Returns a string which is the hashed password.
-func HashPassword(password string, params scrypt.Params) string {
-	hash, err := scrypt.GenerateFromPassword([]byte(password), params)
+func HashPassword(password string) string {
+	hash, err := scrypt.GenerateFromPassword([]byte(password), scrypt.DefaultParams)
 	if err != nil {
 		log.Fatal(err)
 	}
