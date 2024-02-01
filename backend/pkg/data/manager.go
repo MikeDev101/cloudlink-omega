@@ -1,12 +1,14 @@
 package data
 
 import (
+	"context"
 	"database/sql"
 	"log"
 )
 
 type Manager struct {
-	DB *sql.DB
+	Ctx context.Context
+	DB  *sql.DB
 }
 
 func New(sqlDriver string, sqlUrl string) *Manager {
@@ -25,14 +27,12 @@ func New(sqlDriver string, sqlUrl string) *Manager {
 
 	log.Printf("Successfully connected to database")
 
-	// Create manager
-	mgr := &Manager{
-		DB: db,
-	}
-
-	// Initialize DB
-	mgr.initDB()
+	// Create background context
+	ctx := context.Background()
 
 	// Return manager
-	return mgr
+	return &Manager{
+		DB:  db,
+		Ctx: ctx,
+	}
 }
