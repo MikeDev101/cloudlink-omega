@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	structs "github.com/mikedev101/cloudlink-omega/backend/pkg/structs"
 )
+
+// Import structs for client object and signal packet
+type Client structs.Client
+type SignalPacket structs.SignalPacket
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
@@ -17,7 +20,7 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:     AuthorizedOrigins,
 }
 
-func Delete(c *structs.Client) {
+func (c *Client) Delete() {
 	c = nil
 }
 
@@ -42,19 +45,19 @@ func CloseWithViolationCode(conn *websocket.Conn, message string) {
 	conn.WriteJSON(SignalPacket{Opcode: "VIOLATION", Payload: message})
 }
 
-// signalingHandler handles the websocket connection upgrade and message handling.
+// SignalingHandler handles the websocket connection upgrade and message handling.
 //
-// c *gin.Context
-func signalingHandler(c *gin.Context) {
+// c *http.Request
+func SignalingHandler(w http.ResponseWriter, r *http.Request) {
 	// Upgrade initial GET request to a websocket connection
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		http.Error(c.Writer, "Could not open websocket connection", http.StatusInternalServerError)
+		http.Error(w, "Could not open websocket connection", http.StatusInternalServerError)
 		return
 	}
 
 	// Parse URL parameter and close the connection if UGI is not provided
-	ugi := c.Query("ugi")
+	ugi := r.URL.Query().Get("ugi")
 	if ugi == "" {
 		CloseWithViolationCode(conn, "UGI not provided in URL parameter.")
 		return
@@ -62,15 +65,17 @@ func signalingHandler(c *gin.Context) {
 
 	fmt.Printf("%s connecting to game %s\n", conn.RemoteAddr(), string(ugi))
 
-	// Verify validity of provided UGI and get game_name and developer_name
-	game_name, developer_name, err := GetUGIInfo(GlobalConfig.Database, ugi)
-	if err != nil {
-		CloseWithViolationCode(conn, err.Error())
-		return
-	}
+	/*
+		// Verify validity of provided UGI and get game_name and developer_name
+		game_name, developer_name, err := GetUGIInfo(GlobalConfig.Database, ugi)
+		if err != nil {
+			CloseWithViolationCode(conn, err.Error())
+			return
+		}
 
-	// Log connected game
-	fmt.Printf("%s connected to \"%s\" by \"%s\"", conn.RemoteAddr(), game_name, developer_name)
+		// Log connected game
+		fmt.Printf("%s connected to \"%s\" by \"%s\"", conn.RemoteAddr(), game_name, developer_name)
+	*/
 
 	// Create client
 	client := &Client{Conn: conn, UGI: ugi}
