@@ -6,7 +6,7 @@ import (
 	"github.com/huandu/go-sqlbuilder"
 )
 
-func (mgr *Manager) initDB() {
+func (mgr *Manager) InitDB() {
 	log.Print("Database initializing...")
 	mgr.createUsersTable()
 	mgr.createDevelopersTable()
@@ -87,6 +87,10 @@ func (mgr *Manager) createUsersTable() {
 		).
 		Define(
 			`username`,
+			`TINYTEXT NOT NULL DEFAULT ''`, // 255 maximum length
+		).
+		Define(
+			`gamertag`,
 			`TINYTEXT NOT NULL DEFAULT ''`, // 255 maximum length
 		).
 		Define(
