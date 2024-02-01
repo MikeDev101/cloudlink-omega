@@ -30,6 +30,9 @@ func New(sqlDriver string, sqlUrl string) *Manager {
 		DB: db,
 	}
 
+	// Initialize DB
+	mgr.initDB()
+
 	// Return manager
 	return mgr
 }

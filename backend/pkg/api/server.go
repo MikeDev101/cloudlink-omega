@@ -21,10 +21,10 @@ func RunServer(port int, mgr *dm.Manager) error {
 	// TODO: implement custom CORS middleware
 
 	// Mount v0 route
-	r.Mount("/v0", v0.Router)
+	r.Mount("/api/v0", v0.Router)
 
 	// Mount default route (v0)
-	r.Mount("/", v0.Router)
+	r.Mount("/api", v0.Router)
 
 	// Serve root router
 	log.Printf("Serving HTTP server on :%d", port)
