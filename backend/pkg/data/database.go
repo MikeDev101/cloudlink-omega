@@ -3,8 +3,10 @@ package data
 import (
 	"database/sql"
 	"log"
+	"strings"
 
 	"github.com/huandu/go-sqlbuilder"
+	errors "github.com/mikedev101/cloudlink-omega/backend/pkg/errors"
 	structs "github.com/mikedev101/cloudlink-omega/backend/pkg/structs"
 	"github.com/oklog/ulid/v2"
 )
@@ -53,20 +55,131 @@ func (mgr *Manager) FindAllUsers() map[string]*structs.UserQuery {
 	}
 }
 
-func (mgr *Manager) RegisterUser(u *structs.User) (sql.Result, error) {
+// RegisterUser registers a user in the Manager.
+//
+// u *structs.User - the user to be registered
+// (sql.Result, error) - the result of the registration and any error encountered
+func (mgr *Manager) RegisterUser(u *structs.Register) (bool, error) {
 	qy := sqlbuilder.NewInsertBuilder().
 		InsertInto("users").
 		Cols("id", "username", "password", "gamertag", "email").
 		Values(ulid.Make().String(), u.Username, u.Password, u.Gamertag, u.Email)
-	return mgr.RunInsertQuery(qy)
+
+	res, err := mgr.RunInsertQuery(qy)
+	if err != nil {
+		if strings.Contains(err.Error(), "Duplicate entry") {
+			if strings.Contains(err.Error(), "username") {
+				return false, errors.ErrUsernameInUse
+			} else if strings.Contains(err.Error(), "email") {
+				return false, errors.ErrEmailInUse
+			} else if strings.Contains(err.Error(), "gamertag") {
+				return false, errors.ErrGamertagInUse
+			}
+		}
+		return false, err
+	}
+	rows, _ := res.RowsAffected()
+	return rows == 1, nil
 }
 
-func (mgr *Manager) GetUserPasswordHash(username string) (*sql.Rows, error) {
+// GetUserPasswordHash retrieves the password hash for the given email.
+//
+// email string
+// string, error
+func (mgr *Manager) GetUserPasswordHash(email string) (string, error) {
 	qy := sqlbuilder.NewSelectBuilder()
 	qy.Distinct().Select("password")
 	qy.From("users")
 	qy.Where(
-		qy.E("username", username),
+		qy.E("email", email),
 	)
-	return mgr.RunSelectQuery(qy)
+	var hash string
+	res, err := mgr.RunSelectQuery(qy)
+	if err != nil {
+		return "", err
+	}
+	if res.Next() {
+		if err := res.Scan(&hash); err != nil {
+			return "", err
+		}
+	} else {
+		return "", errors.ErrUserNotFound
+	}
+	return hash, nil
+}
+
+// GetUserID retrieves the user ID for the given email.
+//
+// email string - the email of the user
+// string, error - the user ID and any error encountered
+func (mgr *Manager) GetUserID(email string) (string, error) {
+	qy := sqlbuilder.NewSelectBuilder()
+	qy.Distinct().Select("id")
+	qy.From("users")
+	qy.Where(
+		qy.E("email", email),
+	)
+	var userid string
+	res, err := mgr.RunSelectQuery(qy)
+	if err != nil {
+		return "", err
+	}
+	if res.Next() {
+		if err := res.Scan(&userid); err != nil {
+			return "", err
+		}
+	} else {
+		return "", errors.ErrUserNotFound
+	}
+	return userid, nil
+}
+
+// GenerateSessionToken generates a session token for the given user ID and origin.
+//
+// userid: string representing the user ID
+// origin: string representing the origin of the session
+// string: the generated session token
+// error: an error, if any
+func (mgr *Manager) GenerateSessionToken(userid string, origin string) (string, error) {
+	usertoken := ulid.Make().String()
+	qy := sqlbuilder.NewInsertBuilder().
+		InsertInto("sessions").
+		Cols("id", "userid", "origin").
+		Values(usertoken, userid, origin)
+	res, err := mgr.RunInsertQuery(qy)
+	if err != nil {
+		return "", err
+	}
+	rows, _ := res.RowsAffected()
+	if rows != 1 {
+		return "", errors.ErrDatabaseError
+	}
+	return usertoken, nil
+}
+
+func (mgr *Manager) VerifyUGI(ugi string) error {
+	qy := sqlbuilder.NewSelectBuilder()
+	qy.Exists(
+		qy.Select("*").
+			From("games").
+			Where(
+				qy.E("id", ugi),
+			),
+	)
+	res, err := mgr.RunSelectQuery(qy)
+	if err != nil {
+		return err
+	}
+	if res.Next() {
+		var exists bool
+		if err := res.Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return errors.ErrGameNotFound
+		}
+	} else {
+		return errors.ErrDatabaseError
+	}
+	return nil
 }

@@ -7,10 +7,15 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/mikedev101/cloudlink-omega/backend/pkg/accounts"
+	"github.com/go-playground/validator/v10"
+
+	accounts "github.com/mikedev101/cloudlink-omega/backend/pkg/accounts"
 	dm "github.com/mikedev101/cloudlink-omega/backend/pkg/data"
-	"github.com/mikedev101/cloudlink-omega/backend/pkg/structs"
+	errors "github.com/mikedev101/cloudlink-omega/backend/pkg/errors"
+	structs "github.com/mikedev101/cloudlink-omega/backend/pkg/structs"
 )
+
+var validate = validator.New(validator.WithRequiredStructEnabled())
 
 func RootRouter(r chi.Router) {
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
@@ -22,47 +27,102 @@ func RootRouter(r chi.Router) {
 	r.Post("/login", func(w http.ResponseWriter, r *http.Request) {
 		dm := r.Context().Value("dm").(*dm.Manager)
 
-		// Load request body as JSON into User struct
-		var u structs.User
+		// Load request body as JSON into login struct
+		var u structs.Login
 		if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
-		var hash string
+		// Validate login struct
+		err := validate.Struct(u)
 
-		// Verify hash
-		if res, err := dm.GetUserPasswordHash(u.Username); err != nil {
+		if err != nil && len(err.(validator.ValidationErrors)) > 0 {
+			// Create error message
+			msg := "Validation failed:\n"
+			for _, err := range err.(validator.ValidationErrors) {
+				msg += fmt.Sprintf("%s: %s\n", err.Field(), err.Tag())
+			}
+
+			// Write error message to response
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(msg))
+			return
+		}
+
+		// Define vars
+		var hash string
+		var userid string
+		var usertoken string
+
+		// Grab user's password hash
+		if res, err := dm.GetUserPasswordHash(u.Email); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
 			return
 		} else {
-			if res.Next() {
-				if err := res.Scan(&hash); err != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-					return
-				}
-			} else {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
+			hash = res
 		}
 
+		// Verify the hash matches the provided password
 		if err := accounts.VerifyPassword(u.Password, hash); err != nil {
-			w.WriteHeader(http.StatusUnauthorized)
+			// Incorrect password
+			if strings.Contains(err.Error(), "does not match") {
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte("Incorrect password"))
+				return
+			}
+			// Something else went wrong
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("Something went wrong while verifying your login credentials. Please try again."))
 			return
 		}
 
-		// TODO: Generate session token
-		w.Write([]byte("Login successful"))
+		// Grab user ID from email
+		if res, err := dm.GetUserID(u.Email); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		} else {
+			userid = res
+		}
+
+		// Generate session token
+		if res, err := dm.GenerateSessionToken(userid, r.RemoteAddr); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		} else {
+			usertoken = res
+		}
+
+		// Write response to client with the session token
+		w.Write([]byte(usertoken))
 	})
 
 	r.Post("/register", func(w http.ResponseWriter, r *http.Request) {
 		dm := r.Context().Value("dm").(*dm.Manager)
 
-		// Load request body as JSON into User struct
-		var u structs.User
+		// Load request body as JSON into register struct
+		var u structs.Register
 		if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		// Validate register struct
+		err := validate.Struct(u)
+
+		if err != nil && len(err.(validator.ValidationErrors)) > 0 {
+			// Create error message
+			msg := "Validation failed:\n"
+			for _, err := range err.(validator.ValidationErrors) {
+				msg += fmt.Sprintf("%s: %s\n", err.Field(), err.Tag())
+			}
+
+			// Write error message to response
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(msg))
 			return
 		}
 
@@ -73,23 +133,30 @@ func RootRouter(r chi.Router) {
 		res, err := dm.RegisterUser(&u)
 
 		if err != nil {
-			if strings.Contains(err.Error(), "Duplicate entry") {
+			switch err {
+			case errors.ErrUsernameInUse:
 				w.WriteHeader(http.StatusConflict)
-				if strings.Contains(err.Error(), "username") {
-					w.Write([]byte("Username already exists"))
-				} else if strings.Contains(err.Error(), "email") {
-					w.Write([]byte("Email already in use"))
-				} else if strings.Contains(err.Error(), "gamertag") {
-					w.Write([]byte("Gamertag already in use"))
-				}
+			case errors.ErrEmailInUse:
+				w.WriteHeader(http.StatusConflict)
+			case errors.ErrGamertagInUse:
+				w.WriteHeader(http.StatusConflict)
+			default:
+				w.WriteHeader(http.StatusInternalServerError)
 			}
+			w.Write([]byte(err.Error()))
 			return
 		}
 
-		rows, _ := res.RowsAffected()
-		fmt.Printf("Registered user %s (%d row(s) affected)\n", u.Username, rows)
+		if !res {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("something went wrong while registering your account. please try again later"))
+			return
+		}
+
+		fmt.Printf("Registered user %s\n", u.Username)
 
 		// Scan output
 		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte("OK"))
 	})
 }
