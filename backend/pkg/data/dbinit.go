@@ -35,7 +35,7 @@ func (mgr *Manager) createGamesTable() {
 	sb.CreateTable("games").IfNotExists().
 		Define(
 			`id`,
-			`CHAR(26) PRIMARY KEY NOT NULL`, // ULID string
+			`CHAR(26) PRIMARY KEY UNIQUE NOT NULL`, // ULID string
 		).
 		Define(
 			`developerid`,
@@ -51,7 +51,7 @@ func (mgr *Manager) createGamesTable() {
 		).
 		Define(
 			`created`,
-			`INTEGER NOT NULL DEFAULT CURRENT_TIMESTAMP`, // UNIX Timestamp
+			`INTEGER(32) NOT NULL DEFAULT CURRENT_TIMESTAMP`, // UNIX Timestamp
 		)
 	mgr.buildTable("games", sb)
 }
@@ -61,7 +61,7 @@ func (mgr *Manager) createDevelopersTable() {
 	sb.CreateTable("developers").IfNotExists().
 		Define(
 			`id`,
-			`CHAR(26) PRIMARY KEY NOT NULL`, // ULID string
+			`CHAR(26) PRIMARY KEY UNIQUE NOT NULL`, // ULID string
 		).
 		Define(
 			`name`,
@@ -73,7 +73,7 @@ func (mgr *Manager) createDevelopersTable() {
 		).
 		Define(
 			`created`,
-			`INTEGER NOT NULL DEFAULT CURRENT_TIMESTAMP`, // UNIX Timestamp
+			`INTEGER(32) NOT NULL DEFAULT UNIX_TIMESTAMP()`, // UNIX Timestamp
 		)
 	mgr.buildTable("developers", sb)
 }
@@ -83,15 +83,15 @@ func (mgr *Manager) createUsersTable() {
 	sb.CreateTable("users").IfNotExists().
 		Define(
 			`id`,
-			`CHAR(26) PRIMARY KEY NOT NULL`, // ULID string
+			`CHAR(26) PRIMARY KEY UNIQUE NOT NULL`, // ULID string
 		).
 		Define(
 			`username`,
-			`TINYTEXT NOT NULL DEFAULT ''`, // 255 maximum length
+			`TINYTEXT UNIQUE NOT NULL DEFAULT ''`, // 255 maximum length
 		).
 		Define(
 			`gamertag`,
-			`TINYTEXT NOT NULL DEFAULT ''`, // 255 maximum length
+			`TINYTEXT UNIQUE NOT NULL DEFAULT ''`, // 255 maximum length
 		).
 		Define(
 			`password`,
@@ -99,11 +99,11 @@ func (mgr *Manager) createUsersTable() {
 		).
 		Define(
 			`email`,
-			`VARCHAR(320) NOT NULL DEFAULT ''`, // Longest (insane) email address is 320 characters long. But why would you do that to yourself?
+			`VARCHAR(320) UNIQUE NOT NULL DEFAULT ''`, // Longest (insane) email address is 320 characters long. But why would you do that to yourself?
 		).
 		Define(
 			`created`,
-			`INTEGER NOT NULL DEFAULT CURRENT_TIMESTAMP`, // UNIX Timestamp
+			`INTEGER(32) NOT NULL DEFAULT UNIX_TIMESTAMP()`, // UNIX Timestamp
 		)
 	mgr.buildTable("users", sb)
 }
@@ -121,7 +121,7 @@ func (mgr *Manager) createAdminsTable() {
 		).
 		Define(
 			`created`,
-			`INTEGER NOT NULL DEFAULT CURRENT_TIMESTAMP`, // UNIX Timestamp
+			`INTEGER(32) NOT NULL DEFAULT UNIX_TIMESTAMP()`, // UNIX Timestamp
 		)
 	mgr.buildTable("admins", sb)
 }
@@ -131,7 +131,7 @@ func (mgr *Manager) createSessionsTable() {
 	sb.CreateTable("sessions").IfNotExists().
 		Define(
 			`id`,
-			`CHAR(26) PRIMARY KEY NOT NULL`, // ULID string
+			`CHAR(26) PRIMARY KEY UNIQUE NOT NULL`, // ULID string
 		).
 		Define(
 			`userid`,
@@ -143,11 +143,11 @@ func (mgr *Manager) createSessionsTable() {
 		).
 		Define(
 			`created`,
-			`INTEGER NOT NULL DEFAULT CURRENT_TIMESTAMP`, // UNIX Timestamp
+			`INTEGER(32) NOT NULL DEFAULT UNIX_TIMESTAMP()`, // UNIX Timestamp
 		).
 		Define(
 			`expires`,
-			`INTEGER NOT NULL DEFAULT (CURRENT_TIMESTAMP + 86400)`, // UNIX Timestamp + 24 hours
+			`INTEGER(32) NOT NULL DEFAULT (UNIX_TIMESTAMP() + 86400)`, // UNIX Timestamp + 24 hours
 		).
 		Define(
 			`origin`,
@@ -169,7 +169,7 @@ func (mgr *Manager) createSavesTable() {
 		).
 		Define(
 			`slotid`,
-			`UNSIGNED TINYINT NOT NULL DEFAULT 0`, // 10 save slots, using 0-9 index.
+			`TINYINT NOT NULL DEFAULT 0`, // 10 save slots, using 0-9 index.
 		).
 		Define(
 			`contents`,

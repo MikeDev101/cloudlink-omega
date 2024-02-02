@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mikedev101/cloudlink-omega/backend/pkg/accounts"
@@ -16,6 +17,43 @@ func RootRouter(r chi.Router) {
 		dm := r.Context().Value("dm").(*dm.Manager)
 		w.Write([]byte("Hello, World!"))
 		fmt.Printf("Users: %v\n", dm.FindAllUsers()) // DEVELOPMENT ONLY - REMOVE IN PRODUCTION
+	})
+
+	r.Post("/login", func(w http.ResponseWriter, r *http.Request) {
+		dm := r.Context().Value("dm").(*dm.Manager)
+
+		// Load request body as JSON into User struct
+		var u structs.User
+		if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		var hash string
+
+		// Verify hash
+		if res, err := dm.GetUserPasswordHash(u.Username); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		} else {
+			if res.Next() {
+				if err := res.Scan(&hash); err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+			} else {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+		}
+
+		if err := accounts.VerifyPassword(u.Password, hash); err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		// TODO: Generate session token
+		w.Write([]byte("Login successful"))
 	})
 
 	r.Post("/register", func(w http.ResponseWriter, r *http.Request) {
@@ -32,18 +70,26 @@ func RootRouter(r chi.Router) {
 		u.Password = accounts.HashPassword(u.Password)
 
 		// Register user
-		res := dm.RegisterUser(&u)
+		res, err := dm.RegisterUser(&u)
 
-		_, err := res.RowsAffected()
 		if err != nil {
-			w.Write([]byte(err.Error()))
-			w.WriteHeader(http.StatusInternalServerError)
+			if strings.Contains(err.Error(), "Duplicate entry") {
+				w.WriteHeader(http.StatusConflict)
+				if strings.Contains(err.Error(), "username") {
+					w.Write([]byte("Username already exists"))
+				} else if strings.Contains(err.Error(), "email") {
+					w.Write([]byte("Email already in use"))
+				} else if strings.Contains(err.Error(), "gamertag") {
+					w.Write([]byte("Gamertag already in use"))
+				}
+			}
 			return
 		}
 
-		fmt.Printf("Registered user %s\n", u.Username)
+		rows, _ := res.RowsAffected()
+		fmt.Printf("Registered user %s (%d row(s) affected)\n", u.Username, rows)
 
 		// Scan output
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusCreated)
 	})
 }

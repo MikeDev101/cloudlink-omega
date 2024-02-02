@@ -40,7 +40,7 @@ func RunServer(port int, mgr *dm.Manager) error {
 	r.Mount("/api", v0.Router)
 
 	// Serve root router
-	log.Printf("Serving HTTP server on :%d", port)
-	err := http.ListenAndServe(":"+fmt.Sprint(port), r)
+	log.Printf("Serving HTTP server on localhost:%d", port)
+	err := http.ListenAndServe("localhost:"+fmt.Sprint(port), r)
 	return err
 }
