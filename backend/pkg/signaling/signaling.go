@@ -4,9 +4,12 @@ package signaling
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/gorilla/websocket"
+
+	dm "github.com/mikedev101/cloudlink-omega/backend/pkg/data"
 	structs "github.com/mikedev101/cloudlink-omega/backend/pkg/structs"
 )
 
@@ -30,7 +33,7 @@ func (c *Client) Delete() {
 // bool
 func AuthorizedOrigins(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
-	fmt.Printf("Origin: %s\n", origin)
+	log.Printf("Origin: %s\n", origin)
 	// TODO: Implement CORS. Query the database for authorized origins, etc. For now, return true.
 	return true
 }
@@ -49,6 +52,8 @@ func CloseWithViolationCode(conn *websocket.Conn, message string) {
 //
 // c *http.Request
 func SignalingHandler(w http.ResponseWriter, r *http.Request) {
+	dm := r.Context().Value("dm").(*dm.Manager)
+
 	// Upgrade initial GET request to a websocket connection
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -63,19 +68,14 @@ func SignalingHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Printf("%s connecting to game %s\n", conn.RemoteAddr(), string(ugi))
+	// Verify validity of provided UGI and get the name of the game, as well as the name of the developer
+	var gameName, developerName string
+	if gameName, developerName, err = dm.VerifyUGI(ugi); err != nil {
+		CloseWithViolationCode(conn, err.Error())
+		return
+	}
 
-	/*
-		// Verify validity of provided UGI and get game_name and developer_name
-		game_name, developer_name, err := GetUGIInfo(GlobalConfig.Database, ugi)
-		if err != nil {
-			CloseWithViolationCode(conn, err.Error())
-			return
-		}
-
-		// Log connected game
-		fmt.Printf("%s connected to \"%s\" by \"%s\"", conn.RemoteAddr(), game_name, developer_name)
-	*/
+	log.Printf("%s connected to \"%s\" by \"%s\"", r.RemoteAddr, gameName, developerName)
 
 	// Create client
 	client := &Client{Conn: conn, UGI: ugi}
@@ -100,7 +100,7 @@ func (c *Client) MessageHandler() {
 		packet := SignalPacket{}
 		if err = c.Conn.ReadJSON(&packet); err != nil {
 			errstring := fmt.Sprintf("Error reading packet: %s", err)
-			fmt.Println(errstring)
+			log.Println(errstring)
 			CloseWithViolationCode(c.Conn, errstring)
 			return
 		}
@@ -116,7 +116,7 @@ func (c *Client) MessageHandler() {
 
 		// Write message back to browser
 		if err = c.Conn.WriteJSON(packet); err != nil {
-			fmt.Printf("Error writing packet: %s\n", err)
+			log.Printf("Error writing packet: %s\n", err)
 			return
 		}
 	}
