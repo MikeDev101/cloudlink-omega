@@ -157,29 +157,35 @@ func (mgr *Manager) GenerateSessionToken(userid string, origin string) (string, 
 	return usertoken, nil
 }
 
-func (mgr *Manager) VerifyUGI(ugi string) error {
+// VerifyUGI is a function that verifies the given UGI (Unique Game Identifier).
+//
+// It takes a parameter ugi string and returns an error.
+func (mgr *Manager) VerifyUGI(ugi string) (string, string, error) {
 	qy := sqlbuilder.NewSelectBuilder()
-	qy.Exists(
-		qy.Select("*").
-			From("games").
-			Where(
-				qy.E("id", ugi),
-			),
-	)
-	res, err := mgr.RunSelectQuery(qy)
-	if err != nil {
-		return err
-	}
-	if res.Next() {
-		var exists bool
-		if err := res.Scan(&exists); err != nil {
-			return err
-		}
-		if !exists {
-			return errors.ErrGameNotFound
-		}
+	qy.Select(
+		qy.As("g.name", "gameName"),
+		qy.As("d.name", "developerName"),
+	).
+		From("games g", "developers d").
+		Where(
+			qy.E("g.id", ugi),
+			qy.And("g.developerid = d.id"),
+		)
+
+	if res, err := mgr.RunSelectQuery(qy); err != nil {
+		return "", "", err
 	} else {
-		return errors.ErrDatabaseError
+		var gameName string
+		var developerName string
+
+		// Check if there's any output from the query (there should be 1 row if the game exists)
+		if !res.Next() {
+			return "", "", errors.ErrGameNotFound
+		}
+		// Scan the output into the variables
+		if err := res.Scan(&gameName, &developerName); err != nil {
+			return "", "", err
+		}
+		return gameName, developerName, nil
 	}
-	return nil
 }
