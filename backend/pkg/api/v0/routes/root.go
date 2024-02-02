@@ -19,9 +19,8 @@ var validate = validator.New(validator.WithRequiredStructEnabled())
 
 func RootRouter(r chi.Router) {
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		dm := r.Context().Value("dm").(*dm.Manager)
+		// dm := r.Context().Value("dm").(*dm.Manager) // TODO: implement some sort of status check on the root endpoint (uptime, OS, load, memory use, etc.)
 		w.Write([]byte("Hello, World!"))
-		fmt.Printf("Users: %v\n", dm.FindAllUsers()) // DEVELOPMENT ONLY - REMOVE IN PRODUCTION
 	})
 
 	r.Post("/login", func(w http.ResponseWriter, r *http.Request) {
@@ -31,22 +30,12 @@ func RootRouter(r chi.Router) {
 		var u structs.Login
 		if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(err.Error()))
 			return
 		}
 
 		// Validate login struct
-		err := validate.Struct(u)
-
-		if err != nil && len(err.(validator.ValidationErrors)) > 0 {
-			// Create error message
-			msg := "Validation failed:\n"
-			for _, err := range err.(validator.ValidationErrors) {
-				msg += fmt.Sprintf("%s: %s\n", err.Field(), err.Tag())
-			}
-
-			// Write error message to response
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(msg))
+		if handleValidationError(w, validate.Struct(u)) {
 			return
 		}
 
@@ -107,22 +96,12 @@ func RootRouter(r chi.Router) {
 		var u structs.Register
 		if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(err.Error()))
 			return
 		}
 
 		// Validate register struct
-		err := validate.Struct(u)
-
-		if err != nil && len(err.(validator.ValidationErrors)) > 0 {
-			// Create error message
-			msg := "Validation failed:\n"
-			for _, err := range err.(validator.ValidationErrors) {
-				msg += fmt.Sprintf("%s: %s\n", err.Field(), err.Tag())
-			}
-
-			// Write error message to response
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(msg))
+		if handleValidationError(w, validate.Struct(u)) {
 			return
 		}
 
@@ -159,4 +138,20 @@ func RootRouter(r chi.Router) {
 		w.WriteHeader(http.StatusCreated)
 		w.Write([]byte("OK"))
 	})
+}
+
+func handleValidationError(w http.ResponseWriter, err error) bool {
+	if err != nil && len(err.(validator.ValidationErrors)) > 0 {
+		// Create error message
+		msg := "Validation failed:\n"
+		for _, err := range err.(validator.ValidationErrors) {
+			msg += fmt.Sprintf("%s: %s\n", err.Field(), err.Tag())
+		}
+
+		// Write error message to response
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(msg))
+		return true
+	}
+	return false
 }
