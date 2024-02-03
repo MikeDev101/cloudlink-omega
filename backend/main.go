@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"sync"
 
 	godotenv "github.com/joho/godotenv"
@@ -29,6 +30,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Get port
+	port, err := strconv.Atoi(os.Getenv("API_PORT"))
+	if err != nil {
+		panic(err)
+	}
+
 	// Initialize data manager
 	mgr := dm.New(
 		"mysql",
@@ -39,6 +46,7 @@ func main() {
 			os.Getenv("DB_HOST"),
 			os.Getenv("DATABASE"),
 		),
+		os.Getenv("REDIS_URL"),
 	)
 
 	// Create wait group
@@ -48,8 +56,8 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-
-		err := api.RunServer(3000, mgr)
+		err := api.RunServer(
+			os.Getenv("API_HOST"), port, mgr)
 		if err != nil {
 			panic(err)
 		}
