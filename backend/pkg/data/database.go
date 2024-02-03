@@ -14,10 +14,10 @@ import (
 func (mgr *Manager) RunSelectQuery(sb *sqlbuilder.SelectBuilder) (*sql.Rows, error) {
 	query, args := sb.Build()
 	if res, err := mgr.DB.Query(query, args...); err != nil {
-		log.Printf("ERROR: Failed to execute select request:\n\tquery: %s\n\targs: %v\n\tmessage: %s", query, args, err)
+		log.Printf("[DB] ERROR: Failed to execute select request:\n\tquery: %s\n\targs: %v\n\tmessage: %s", query, args, err)
 		return nil, err
 	} else {
-		log.Printf("SUCCESS: Executed select request:\n\tquery: %s\n\targs: %v", query, args) // DEBUGGING ONLY
+		log.Printf("[DB] SUCCESS: Executed select request:\n\tquery: %s\n\targs: %v", query, args) // DEBUGGING ONLY
 		return res, nil
 	}
 }
@@ -25,10 +25,10 @@ func (mgr *Manager) RunSelectQuery(sb *sqlbuilder.SelectBuilder) (*sql.Rows, err
 func (mgr *Manager) RunInsertQuery(sb *sqlbuilder.InsertBuilder) (sql.Result, error) {
 	query, args := sb.Build()
 	if res, err := mgr.DB.Exec(query, args...); err != nil {
-		log.Printf("ERROR: Failed to execute insert request:\n\tquery: %s\n\targs: %v\n\tmessage: %s", query, args, err)
+		log.Printf("[DB] ERROR: Failed to execute insert request:\n\tquery: %s\n\targs: %v\n\tmessage: %s", query, args, err)
 		return nil, err
 	} else {
-		log.Printf("SUCCESS: Executed insert request:\n\tquery: %s\n\targs: %v", query, args) // DEBUGGING ONLY
+		log.Printf("[DB] SUCCESS: Executed insert request:\n\tquery: %s\n\targs: %v", query, args) // DEBUGGING ONLY
 		return res, nil
 	}
 }
@@ -46,7 +46,7 @@ func (mgr *Manager) FindAllUsers() map[string]*structs.UserQuery {
 			var u structs.UserQuery
 			err := res.Scan(&u.ID, &u.Username, &u.Email, &u.Created)
 			if err != nil {
-				log.Printf(`[ERROR] Failed to find all users: %s`, err)
+				log.Printf(`[DB] Error: Failed to find all users: %s`, err)
 				return nil
 			}
 			rows[u.ID] = &u
@@ -62,8 +62,8 @@ func (mgr *Manager) FindAllUsers() map[string]*structs.UserQuery {
 func (mgr *Manager) RegisterUser(u *structs.Register) (bool, error) {
 	qy := sqlbuilder.NewInsertBuilder().
 		InsertInto("users").
-		Cols("id", "username", "password", "gamertag", "email").
-		Values(ulid.Make().String(), u.Username, u.Password, u.Gamertag, u.Email)
+		Cols("id", "username", "password", "email").
+		Values(ulid.Make().String(), u.Username, u.Password, u.Email)
 
 	res, err := mgr.RunInsertQuery(qy)
 	if err != nil {
@@ -72,8 +72,6 @@ func (mgr *Manager) RegisterUser(u *structs.Register) (bool, error) {
 				return false, errors.ErrUsernameInUse
 			} else if strings.Contains(err.Error(), "email") {
 				return false, errors.ErrEmailInUse
-			} else if strings.Contains(err.Error(), "gamertag") {
-				return false, errors.ErrGamertagInUse
 			}
 		}
 		return false, err
@@ -188,4 +186,35 @@ func (mgr *Manager) VerifyUGI(ugi string) (string, string, error) {
 		}
 		return gameName, developerName, nil
 	}
+}
+
+// VerifySessionToken verifies the session token.
+//
+// It takes a usertoken string as a parameter and returns a string, a string, an int, and an error.
+func (mgr *Manager) VerifySessionToken(usertoken string) (*structs.Client, error) {
+	qy := sqlbuilder.NewSelectBuilder()
+	qy.Select(
+		qy.As("u.username", "username"),
+		qy.As("s.userid", "userid"),
+		qy.As("s.origin", "origin"),
+		qy.As("s.expires", "expires"),
+	).
+		From("sessions s", "users u").
+		Where(
+			qy.E("s.id", usertoken),
+			qy.And("u.id = s.userid"),
+		)
+	client := &structs.Client{}
+	res, err := mgr.RunSelectQuery(qy)
+	if err != nil {
+		return nil, err
+	}
+	if res.Next() {
+		if err := res.Scan(&client.Username, &client.ULID, &client.Origin, &client.Expiry); err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, errors.ErrSessionNotFound
+	}
+	return client, nil
 }

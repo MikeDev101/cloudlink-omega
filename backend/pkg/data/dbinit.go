@@ -7,7 +7,7 @@ import (
 )
 
 func (mgr *Manager) InitDB() {
-	log.Print("Database initializing...")
+	log.Print("[DB] Initializing DB (This may take some time on first run)...")
 	mgr.createUsersTable()
 	mgr.createDevelopersTable()
 	mgr.createGamesTable()
@@ -18,15 +18,15 @@ func (mgr *Manager) InitDB() {
 	mgr.createDeveloperMembersTable()
 	mgr.createIPWhitelistTable()
 	mgr.createIPBlocklistTable()
-	log.Print("Database initialized!")
+	log.Print("[DB] Initialized!")
 }
 
 func (mgr *Manager) buildTable(tablename string, sb *sqlbuilder.CreateTableBuilder) {
 	query, args := sb.Build()
 	if _, err := mgr.DB.Query(query, args...); err != nil {
-		log.Printf(`[FAILED] %s (%s)`, tablename, err)
+		log.Printf(`[DB] Failed to prepare table "%s": %s`, tablename, err)
 	} else {
-		log.Printf(`[PASSED] %s`, tablename)
+		log.Printf(`[DB] Prepared table "%s" successfully.`, tablename)
 	}
 }
 
@@ -51,7 +51,7 @@ func (mgr *Manager) createGamesTable() {
 		).
 		Define(
 			`created`,
-			`INTEGER(32) NOT NULL DEFAULT CURRENT_TIMESTAMP`, // UNIX Timestamp
+			`BIGINT NOT NULL DEFAULT CURRENT_TIMESTAMP`, // UNIX Timestamp
 		)
 	mgr.buildTable("games", sb)
 }
@@ -73,7 +73,7 @@ func (mgr *Manager) createDevelopersTable() {
 		).
 		Define(
 			`created`,
-			`INTEGER(32) NOT NULL DEFAULT UNIX_TIMESTAMP()`, // UNIX Timestamp
+			`BIGINT NOT NULL DEFAULT UNIX_TIMESTAMP()`, // UNIX Timestamp
 		)
 	mgr.buildTable("developers", sb)
 }
@@ -90,10 +90,6 @@ func (mgr *Manager) createUsersTable() {
 			`TINYTEXT UNIQUE NOT NULL DEFAULT ''`, // 255 maximum length
 		).
 		Define(
-			`gamertag`,
-			`TINYTEXT UNIQUE NOT NULL DEFAULT ''`, // 255 maximum length
-		).
-		Define(
 			`password`,
 			`TINYTEXT NOT NULL DEFAULT ''`, // Scrypt hash
 		).
@@ -103,7 +99,7 @@ func (mgr *Manager) createUsersTable() {
 		).
 		Define(
 			`created`,
-			`INTEGER(32) NOT NULL DEFAULT UNIX_TIMESTAMP()`, // UNIX Timestamp
+			`BIGINT NOT NULL DEFAULT UNIX_TIMESTAMP()`, // UNIX Timestamp
 		)
 	mgr.buildTable("users", sb)
 }
@@ -121,7 +117,7 @@ func (mgr *Manager) createAdminsTable() {
 		).
 		Define(
 			`created`,
-			`INTEGER(32) NOT NULL DEFAULT UNIX_TIMESTAMP()`, // UNIX Timestamp
+			`BIGINT NOT NULL DEFAULT UNIX_TIMESTAMP()`, // UNIX Timestamp
 		)
 	mgr.buildTable("admins", sb)
 }
@@ -143,11 +139,11 @@ func (mgr *Manager) createSessionsTable() {
 		).
 		Define(
 			`created`,
-			`INTEGER(32) NOT NULL DEFAULT UNIX_TIMESTAMP()`, // UNIX Timestamp
+			`BIGINT NOT NULL DEFAULT UNIX_TIMESTAMP()`, // UNIX Timestamp
 		).
 		Define(
 			`expires`,
-			`INTEGER(32) NOT NULL DEFAULT (UNIX_TIMESTAMP() + 86400)`, // UNIX Timestamp + 24 hours
+			`BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP() + 86400)`, // UNIX Timestamp + 24 hours
 		).
 		Define(
 			`origin`,
@@ -206,6 +202,10 @@ func (mgr *Manager) createDeveloperMembersTable() {
 		Define(
 			`userid`,
 			`CHAR(26) NOT NULL REFERENCES users(id)`, // ULID string
+		).
+		Define(
+			`description`,
+			`TINYTEXT NOT NULL`, // ULID string
 		)
 	mgr.buildTable("developer_members", sb)
 }

@@ -1,13 +1,23 @@
 package structs
 
-import "github.com/gorilla/websocket"
+import (
+	"sync"
+
+	"github.com/gorilla/websocket"
+)
 
 type Client struct {
 	Conn          *websocket.Conn
+	ID            uint64 // For client manager tracking only
 	UGI           string
+	IsHost        bool
 	Authorization string // ULID session token
-	Gamertag      string
-	ID            string
-	Expiry        int // UNIX time
+	Username      string
+	ULID          string
+	Expiry        int64 // UNIX time
 	ValidSession  bool
+	Origin        string // Hostname of the origin of the connection
+	GameName      string
+	DeveloperName string
+	Lock          sync.RWMutex
 }

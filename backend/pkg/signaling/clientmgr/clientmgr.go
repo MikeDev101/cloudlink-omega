@@ -1,80 +1,105 @@
 package clientmgr
 
 import (
+	"log"
 	"strings"
 	"sync"
+
+	structs "github.com/mikedev101/cloudlink-omega/backend/pkg/structs"
 )
 
-/*
-Client manager is a pseudo-database for managing websocket clients.
-It functionally mimics a in-memory database. It supports basic CRUD operations and queries.
-*/
-
-// Client structure
-type Client struct {
-	ID   string      `json:"id"`   // Primary key (ULID).
-	Conn interface{} `json:"-"`    // Websocket connection.
-	Game string      `json:"-"`    // Game name.
-	Name string      `json:"name"` // Gamertag.
-	Lock sync.Mutex  `json:"-"`    // Access lock.
-}
+// Client manager is a pseudo-database for signaling clients.
 
 // In-memory pseudo-DB
 type ClientDB struct {
-	clients       map[string]*Client // Client table.
-	idIncrementer int                // ID Autoincrement.
-	queryLock     sync.Mutex         // Locks the entire query process. Prevents deadlocks.
+	clients       map[uint64]*structs.Client // Client table.
+	idIncrementer uint64                     // ID Autoincrement.
+	queryLock     sync.Mutex                 // Locks the entire query process. Prevents deadlocks.
 }
 
 // CREATE TABLE clients (ID INTEGER PRIMARY KEY, Game TEXT, Name TEXT)
 func New() *ClientDB {
+	log.Print("[Client Manager] Initializing new signaling client manager...")
 	return &ClientDB{
-		clients:       make(map[string]*Client),
+		clients:       make(map[uint64]*structs.Client),
 		idIncrementer: 0, // AUTOINCREMENT
 		queryLock:     sync.Mutex{},
 	}
 }
 
+func (db *ClientDB) Delete(client *structs.Client) {
+	log.Printf("[Client Manager] Deleting client (%d) in %s...", client.ID, client.UGI)
+
+	// Get write lock
+	db.queryLock.Lock()
+
+	// Delete client and free lock
+	defer db.queryLock.Unlock()
+	delete(db.clients, client.ID)
+}
+
 // INSERT INTO clients (Game, Name) VALUES (?, ?)
-func (db *ClientDB) Add(client *Client) (createdId string) {
+func (db *ClientDB) Add(client *structs.Client) *structs.Client {
 	// Get write lock
 	db.queryLock.Lock()
 
 	// Add client and free lock
 	defer db.queryLock.Unlock()
 	func() {
+		client.ID = db.idIncrementer
+		db.idIncrementer++
+		log.Printf("[Client Manager] Adding client (%d) in %s...", client.ID, client.UGI)
 		db.clients[client.ID] = client
 	}()
-	return client.ID
+
+	return client
 }
 
-// SELECT client FROM clients WHERE ID = (id)
-func (db *ClientDB) GetClientByID(id string) *Client {
+// SELECT client FROM clients WHERE ULID = (ulid)
+func (db *ClientDB) GetClientByULID(query string) *structs.Client {
+	var res *structs.Client = nil
+
+	log.Printf("[Client Manager] Finding client given ULID %s...", query)
+
 	// Get read lock
 	db.queryLock.Lock()
 
 	// Return match and free lock
 	defer db.queryLock.Unlock()
-	return db.clients[id]
+	func() {
+		for _, client := range db.clients {
+			if client.ULID == query {
+				log.Printf("[Client Manager] Found client ULID match, returning client %d...", client.ID)
+				res = client
+			}
+		}
+	}()
+	if res == nil {
+		log.Printf("[Client Manager] No client found matching ULID %s", query)
+	}
+	return res
 }
 
-// SELECT id FROM clients
-func (db *ClientDB) GetAllClientIDs() (ids []string) {
+// SELECT ulid FROM clients
+func (db *ClientDB) GetAllClientULIDs() (ulids []string) {
+	log.Println("[Client Manager] Gathering all client ULIDs...")
+
 	// Get read lock
 	db.queryLock.Lock()
 
 	// Return all IDs and free lock
 	defer db.queryLock.Unlock()
 	func() {
-		for id := range db.clients {
-			ids = append(ids, id)
+		for _, client := range db.clients {
+			ulids = append(ulids, client.ULID)
 		}
 	}()
-	return ids
+	return ulids
 }
 
 // SELECT client FROM clients
-func (db *ClientDB) GetAllClients() (clients []*Client) {
+func (db *ClientDB) GetAllClients() (clients []*structs.Client) {
+	log.Println("[Client Manager] Gathering all clients...")
 
 	// Get read lock
 	db.queryLock.Lock()
@@ -82,43 +107,88 @@ func (db *ClientDB) GetAllClients() (clients []*Client) {
 	// Return all clients and free lock
 	defer db.queryLock.Unlock()
 	func() {
-		for id := range db.clients {
-			clients = append(clients, db.clients[id])
+		for _, client := range db.clients {
+			clients = append(clients, client)
 		}
 	}()
 	return clients
 }
 
-// SELECT * FROM clients WHERE Game LIKE (game)
-func (db *ClientDB) GetClientsByGame(game string) []*Client {
-	var clients []*Client
+// SELECT * FROM clients WHERE UGI LIKE (ugi)
+func (db *ClientDB) GetClientsByUGI(ugi string) []*structs.Client {
+	log.Printf("[Client Manager] Gathering all clients with UGI %s...", ugi)
+
+	var clients []*structs.Client
 
 	// Get read lock
 	db.queryLock.Lock()
 
-	// lowercase game
-	game = strings.ToUpper(game)
-
 	defer db.queryLock.Unlock()
 	for _, client := range db.clients {
-		if strings.ToUpper(client.Game) == game {
+		if strings.Compare(client.UGI, ugi) == 0 {
 			clients = append(clients, client)
 		}
 	}
 	return clients
 }
 
-// GetClientsBySimilarName returns all clients that have a name similar to the query.
+// GetAllHostsByUGI returns all clients that are hosts for the given UGI.
+// SELECT * FROM clients WHERE UGI LIKE (ugi) AND IsHost = 1
+func (db *ClientDB) GetAllHostsByUGI(ugi string) []*structs.Client {
+	log.Printf("[Client Manager] Gathering all hosts within UGI %s...", ugi)
+
+	var clients []*structs.Client
+
+	// Get read lock
+	db.queryLock.Lock()
+
+	defer db.queryLock.Unlock()
+	for _, client := range db.clients {
+		if client.IsHost {
+			continue
+		}
+		if strings.Compare(client.UGI, ugi) == 0 {
+			clients = append(clients, client)
+		}
+	}
+	return clients
+}
+
+// GetAllHostsByUGI returns all clients that are peers for the given UGI.
+// SELECT * FROM clients WHERE UGI LIKE (ugi) AND IsHost = 0
+func (db *ClientDB) GetAllPeersByUGI(ugi string) []*structs.Client {
+	log.Printf("[Client Manager] Gathering all peers within UGI %s...", ugi)
+
+	var clients []*structs.Client
+
+	// Get read lock
+	db.queryLock.Lock()
+
+	defer db.queryLock.Unlock()
+	for _, client := range db.clients {
+		if !client.IsHost {
+			continue
+		}
+		if strings.Compare(client.UGI, ugi) == 0 {
+			clients = append(clients, client)
+		}
+	}
+	return clients
+}
+
+// GetClientsByUsernameSimilarTo returns all clients that have a username similar to the query.
 // Each individual client will get a read lock if matched.
 // SELECT * FROM clients WHERE Name LIKE (query)%
-func (db *ClientDB) GetClientsByNameSimilarTo(query string) (clients []*Client) {
+func (db *ClientDB) GetClientsByUsernameSimilarTo(query string) (clients []*structs.Client) {
+	log.Printf("[Client Manager] Finding all clients with similar username: %s...", query)
+
 	// Get read lock
 	db.queryLock.Lock()
 
 	// Return all matches and release locks
 	defer db.queryLock.Unlock()
 	for _, client := range db.clients {
-		if strings.HasPrefix(client.Name, query) {
+		if strings.HasPrefix(client.Username, query) {
 			clients = append(clients, client)
 		}
 	}
