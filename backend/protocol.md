@@ -18,7 +18,7 @@ This section defines the various commands used for managing game lobbies and neg
 
 ## URL
 To connect to a CL Omega signaling server, open a websocket connection using the following URL format:
-`wss://the.server.tld:port/api/signaling?ugi={ugi}`
+`wss://the.server.tld:port/api/v0/signaling?ugi={ugi}`
 > `ugi` - Unique Game Identifier. Used to specify which game to connect to.
 
 ## Commands
@@ -132,6 +132,7 @@ This message is sent when the server has made a peer the new host of a lobby.
 | Opcode | Description |
 |--------|-------------|
 | VIOLATION | Protocol exception. |
+| WARNING | Protocol warning message. Used when VIOLATION isn't necessary. |
 | KEEPALIVE | Ping/pong. |
 | INIT | Authenticates the connection given a valid login token. |
 | INIT_OK | Returns game info and username data upon successful login. |
