@@ -37,17 +37,11 @@ func init() {
 }
 
 // MessageHandler handles incoming messages from the browser using a websocket connection.
-//
-// Parameter(s):
-//
-//	conn *websocket.Conn - the websocket connection
-//
-// Return type(s): None
 func MessageHandler(c *structs.Client, dm *dm.Manager, r *http.Request) {
 	log.Printf("[Signaling] Spawning handler for client %d", c.ID)
 
 	var err error
-	defer c.Conn.Close()
+	defer CloseHandler(c)
 	for {
 		_, rawPacket, _ := c.Conn.ReadMessage()
 
@@ -68,19 +62,304 @@ func MessageHandler(c *structs.Client, dm *dm.Manager, r *http.Request) {
 		case "INIT":
 			HandleInitOpcode(c, packet, dm, r)
 		case "KEEPALIVE":
-			HandleKeepaliveOpcode(c)
+			HandleKeepaliveOpcode(c, packet)
 		case "CONFIG_HOST":
-			HandleConfigHostOpcode(c, rawPacket)
+			HandleConfigHostOpcode(c, packet, rawPacket)
 		case "CONFIG_PEER":
-			HandleConfigPeerOpcode(c, rawPacket)
+			HandleConfigPeerOpcode(c, packet, rawPacket)
+		case "MAKE_OFFER":
+			HandleMakeOfferOpcode(c, packet)
 		}
 	}
 }
 
-// SendCodeWithMessage sends a websocket message with an error code.
-// If customcode is provided, the VIOLATION opcode will be used, and the
+func HandleMakeOfferOpcode(c *structs.Client, packet *structs.SignalPacket) {
+	// Check if the client has a valid session
+	if !c.ValidSession {
+		SendCodeWithMessage(c, nil, "CONFIG_REQUIRED", packet.Listener)
+		return
+	}
+
+	// Require that the client is a host
+	if !c.IsHost {
+		SendCodeWithMessage(c, nil, "NOT_HOST", packet.Listener)
+		return
+	}
+
+	// Verify the recipient argument is a valid ULID
+	if msg := utils.VariableContainsValidationError("recipient", validate.Var(packet.Recipient, "ulid")); msg != nil {
+		SendCodeWithMessage(c, msg, "WARNING", packet.Listener)
+		return
+	}
+
+	// Check if the recipient exists
+	recipient := Manager.GetPeerClientBySpecificULIDinUGIAndLobby(packet.Recipient, c.UGI, c.Lobby)
+	if recipient == nil {
+		SendCodeWithMessage(c, nil, "PEER_INVALID", packet.Listener)
+		return
+	}
+
+	// Relay the offer
+	SendMessage(recipient, &structs.SignalPacket{
+		Opcode:  "MAKE_OFFER",
+		Origin:  c.UGI,
+		Payload: packet.Payload,
+	})
+
+	// Tell the host that the offer was relayed successfully
+	SendCodeWithMessage(c, nil, "RELAY_OK", packet.Listener)
+}
+
+// HandleConfigPeerOpcode handles the CONFIG_PEER opcode.
+func HandleConfigPeerOpcode(c *structs.Client, packet *structs.SignalPacket, rawPacket []byte) {
+	// Check if the client has a valid session
+	if !c.ValidSession {
+		SendCodeWithMessage(c, nil, "CONFIG_REQUIRED", packet.Listener)
+		return
+	}
+
+	// Check if the client is already a peer
+	if c.IsPeer {
+		SendCodeWithMessage(c, nil, "ALREADY_HOST", packet.Listener)
+		return
+	}
+
+	// Remarshal using PeerConfigPacket
+	rePacket := &structs.PeerConfigPacket{}
+	if err := json.Unmarshal(rawPacket, &rePacket); err != nil {
+		log.Printf("[Signaling] Error reading packet: %s", err)
+		SendCodeWithMessage(c, err.Error())
+		return
+	}
+
+	// Validate
+	if msg := utils.StructContainsValidationError(validate.Struct(rePacket.Payload)); msg != nil {
+		SendCodeWithMessage(c, msg)
+		return
+	}
+
+	// Check if the desired lobby exists. If not, return a message.
+	hosts := Manager.GetHostClientsByUGIAndLobby(c.UGI, rePacket.Payload.LobbyID)
+	if len(hosts) == 0 {
+		// Cannot join lobby since it does not exist
+		SendCodeWithMessage(c, nil, "LOBBY_NOTFOUND", packet.Listener)
+		return
+	}
+	if len(hosts) > 1 {
+		log.Fatalf("[Signaling] Multiple hosts found for UGI %s and lobby %s. This should never happen. Shutting down...", c.UGI, rePacket.Payload.LobbyID)
+	}
+
+	// Get lobby
+	lobby := Manager.GetLobbyConfigStorage(c.UGI, rePacket.Payload.LobbyID)
+
+	// Check if lobby is full, or no limit is set (0)
+	if lobby.MaximumPeers != 0 {
+
+		// Get a count of all peers in the lobby
+		peers := len(Manager.GetPeerClientsByUGIAndLobby(c.UGI, rePacket.Payload.LobbyID))
+
+		// Check if the lobby is full
+		if peers >= lobby.MaximumPeers {
+			SendCodeWithMessage(c, nil, "LOBBY_FULL", packet.Listener)
+			return
+		}
+	}
+
+	// Check if the lobby is currently locked, and if so, abort
+	if lobby.Locked {
+		SendCodeWithMessage(c, nil, "LOBBY_LOCKED", packet.Listener)
+		return
+	}
+
+	// Verify password
+	if err := accounts.VerifyPassword(rePacket.Payload.Password, lobby.Password); err != nil {
+		SendCodeWithMessage(c, nil, "PASSWORD_FAIL", packet.Listener)
+		return
+	}
+
+	// Config the client as a peer
+	c.IsPeer = true
+	c.Lobby = rePacket.Payload.LobbyID
+
+	// Notify the host that a new peer has joined
+	SendMessage(hosts[0], &structs.SignalPacket{
+		Opcode: "NEW_PEER",
+		Payload: &structs.NewPeerParams{
+			ID:   c.ULID,
+			User: c.Username,
+		},
+	})
+
+	// Tell the client that they are now a peer
+	SendCodeWithMessage(c, nil, "ACK_PEER", packet.Listener)
+}
+
+// HandleConfigHostOpcode handles the CONFIG_HOST opcode.
+func HandleConfigHostOpcode(c *structs.Client, packet *structs.SignalPacket, rawPacket []byte) {
+	// Check if the client has a valid session
+	if !c.ValidSession {
+		SendCodeWithMessage(c, nil, "CONFIG_REQUIRED", packet.Listener)
+		return
+	}
+
+	// Check if the client is already a host
+	if c.IsHost {
+		SendCodeWithMessage(c, nil, "ALREADY_HOST", packet.Listener)
+		return
+	}
+
+	// Remarshal using HostConfigPacket
+	rePacket := &structs.HostConfigPacket{}
+	if err := json.Unmarshal(rawPacket, &rePacket); err != nil {
+		log.Printf("[Signaling] Error reading packet: %s", err)
+		SendCodeWithMessage(c, err.Error())
+		return
+	}
+
+	// Validate
+	if msg := utils.StructContainsValidationError(validate.Struct(rePacket.Payload)); msg != nil {
+		SendCodeWithMessage(c, msg)
+		return
+	}
+
+	// Check if a lobby exists within the current game. If not, create one.
+	matches := Manager.GetHostClientsByUGIAndLobby(c.UGI, rePacket.Payload.LobbyID)
+	if len(matches) != 0 {
+		// Cannot create lobby since it already exists
+		SendCodeWithMessage(c, "LOBBY_EXISTS", packet.Listener)
+		return
+	}
+
+	// Config the client as a host
+	c.IsHost = true
+	c.Lobby = rePacket.Payload.LobbyID
+
+	// Create lobby and store the desired settings
+	lobby := Manager.CreateLobbyConfigStorage(c.UGI, rePacket.Payload.LobbyID)
+
+	// Store lobby settings.
+	// TODO: I'm pretty sure there's a more elegant way to do this...
+	lobby.ID = rePacket.Payload.LobbyID
+	lobby.MaximumPeers = rePacket.Payload.MaximumPeers
+	lobby.AllowHostReclaim = rePacket.Payload.AllowHostReclaim
+	lobby.AllowPeersToReclaim = rePacket.Payload.AllowPeersToReclaim
+	lobby.CurrentOwnerID = c.ID
+	lobby.CurrentOwnerULID = c.ULID
+	lobby.Locked = false
+
+	// Hash the password to store
+	lobby.Password = accounts.HashPassword(rePacket.Payload.Password)
+
+	// Broadcast new host
+	log.Printf("[Signaling] Client %d is now a host in lobby %s and UGI %s", c.ID, rePacket.Payload.LobbyID, c.UGI)
+	BroadcastMessage(Manager.GetAllClientsWithoutLobby(c.UGI), &structs.SignalPacket{
+		Opcode: "NEW_HOST",
+		Payload: &structs.NewHostParams{
+			ID:      c.ULID,
+			User:    c.Username,
+			LobbyID: c.Lobby,
+		},
+	})
+
+	// Tell the client the lobby has been created
+	SendCodeWithMessage(c, nil, "ACK_HOST", packet.Listener)
+}
+
+// HandleKeepaliveOpcode handles the KEEPALIVE opcode.
+func HandleKeepaliveOpcode(c *structs.Client, packet *structs.SignalPacket) {
+	SendCodeWithMessage(c, nil, "KEEPALIVE", packet.Listener)
+}
+
+// HandleInitOpcode handles the INIT opcode.
+func HandleInitOpcode(c *structs.Client, packet *structs.SignalPacket, dm *dm.Manager, r *http.Request) {
+	if c.ValidSession {
+		SendCodeWithMessage(c, nil, "SESSION_EXISTS", packet.Listener)
+		return
+	}
+
+	// Assert the payload is a string, and a valid ULID
+	var ulidToken string
+	if msg := utils.VariableContainsValidationError("payload", validate.Var(packet.Payload, "ulid")); msg != nil {
+		SendCodeWithMessage(c, msg)
+		return
+	} else {
+		ulidToken = packet.Payload.(string)
+	}
+
+	// Check if the token is valid in the DB
+	tmpClient, err := dm.VerifySessionToken(ulidToken)
+	if err != nil {
+		SendCodeWithMessage(c, err.Error(), "TOKEN_INVALID", packet.Listener)
+		return
+	}
+
+	// Check if the user is already connected
+	if Manager.GetClientByULID(tmpClient.ULID) != nil {
+		SendCodeWithMessage(c, nil, "SESSION_EXISTS", packet.Listener)
+		return
+	}
+
+	// Check if origin matches
+	if tmpClient.Origin != r.URL.Hostname() {
+		SendCodeWithMessage(c, nil, "TOKEN_ORIGIN_MISMATCH", packet.Listener)
+		return
+	}
+
+	// Check if token has expired
+	if tmpClient.Expiry < time.Now().Unix() {
+		SendCodeWithMessage(c, nil, "TOKEN_EXPIRED", packet.Listener)
+		return
+	}
+
+	// Configure client session
+	c.Authorization = packet.Payload.(string)
+	c.ULID = tmpClient.ULID
+	c.Username = tmpClient.Username
+	c.Expiry = tmpClient.Expiry
+	c.ValidSession = true
+
+	// Get game name and developer name for the client
+	gameName, developerName, _ := dm.VerifyUGI(c.UGI)
+
+	// Send INIT_OK signal
+
+	SendCodeWithMessage(c, &structs.InitOK{
+		User:      c.Username,
+		Id:        tmpClient.ULID,
+		Game:      gameName,
+		Developer: developerName,
+	},
+		"INIT_OK",
+		packet.Listener,
+	)
+}
+
+// SendMessage sends a signaling message to a client.
+func SendMessage(c *structs.Client, packet any) {
+	if c == nil {
+		log.Println("[Signaling] WARNING: Attempted to send a message to a nil client.")
+		return
+	}
+
+	// Get a lock so that we don't send multiple messages at once
+	c.Lock.Lock()
+
+	// Send message and unlock
+	defer c.Lock.Unlock()
+	c.Conn.WriteJSON(packet)
+}
+
+// BroadcastMessage sends a signaling message to an array of clients.
+func BroadcastMessage(c []*structs.Client, packet any) {
+	for _, client := range c {
+		go SendMessage(client, packet)
+	}
+}
+
+// SendCodeWithMessage sends a signaling message to a client.
+// If a custom error code is not provided, the VIOLATION opcode will be used and the
 // connection will be closed afterwards.
-func SendCodeWithMessage(conn any, message any, customcode ...string) {
+func SendCodeWithMessage(conn any, message any, extraargs ...string) {
 	var client *websocket.Conn
 
 	// Handle connection type
@@ -93,22 +372,34 @@ func SendCodeWithMessage(conn any, message any, customcode ...string) {
 		panic("[Signaling] Attempted to send a code message to a invalid type. ")
 	}
 
-	// Send code
-	if customcode != nil {
-		client.WriteJSON(&structs.SignalPacket{
-			Opcode:  customcode[0],
-			Payload: message,
-		})
-	} else {
+	if len(extraargs) == 0 || extraargs == nil {
 		defer client.Close()
 		client.WriteJSON(&structs.SignalPacket{
 			Opcode:  "VIOLATION",
 			Payload: message,
 		})
+		return
 	}
+
+	// Send code
+	if len(extraargs) == 1 {
+		client.WriteJSON(&structs.SignalPacket{
+			Opcode:  extraargs[0],
+			Payload: message,
+		})
+		return
+	}
+
+	// Send code with listener
+	client.WriteJSON(&structs.SignalPacket{
+		Opcode:   extraargs[0],
+		Payload:  message,
+		Listener: extraargs[1],
+	})
 }
 
-func PrepareToClose(client *structs.Client) {
+// CloseHandler prepares a client to be deleted.
+func CloseHandler(client *structs.Client) {
 	// Before we delete the client, check if it was a host.
 	if client.IsHost {
 
@@ -150,256 +441,7 @@ func PrepareToClose(client *structs.Client) {
 
 	// Finally, delete the client
 	Manager.Delete(client)
-}
 
-func HandleConfigPeerOpcode(c *structs.Client, rawPacket []byte) {
-	// Check if the client has a valid session
-	if !c.ValidSession {
-		SendCodeWithMessage(c, nil, "CONFIG_REQUIRED")
-		return
-	}
-
-	// Check if the client is already a peer
-	if c.IsPeer {
-		SendCodeWithMessage(c, nil, "ALREADY_HOST")
-		return
-	}
-
-	// Remarshal using PeerConfigPacket
-	packet := &structs.PeerConfigPacket{}
-	if err := json.Unmarshal(rawPacket, &packet); err != nil {
-		log.Printf("[Signaling] Error reading packet: %s", err)
-		SendCodeWithMessage(c, err.Error())
-		return
-	}
-
-	// Validate
-	if msg := utils.StructContainsValidationError(validate.Struct(packet.Payload)); msg != nil {
-		SendCodeWithMessage(c, msg)
-		return
-	}
-
-	// Check if the desired lobby exists. If not, return a message.
-	hosts := Manager.GetHostClientsByUGIAndLobby(c.UGI, packet.Payload.LobbyID)
-	if len(hosts) == 0 {
-		// Cannot join lobby since it does not exist
-		SendCodeWithMessage(c, nil, "LOBBY_NOTFOUND")
-		return
-	}
-	if len(hosts) > 1 {
-		log.Fatalf("[Signaling] Multiple hosts found for UGI %s and lobby %s. This should never happen. Shutting down...", c.UGI, packet.Payload.LobbyID)
-	}
-
-	// Get lobby
-	lobby := Manager.GetLobbyConfigStorage(c.UGI, packet.Payload.LobbyID)
-
-	// Check if lobby is full, or no limit is set (0)
-	if lobby.MaximumPeers != 0 {
-
-		// Get a count of all peers in the lobby
-		peers := len(Manager.GetPeerClientsByUGIAndLobby(c.UGI, packet.Payload.LobbyID))
-
-		// Check if the lobby is full
-		if peers >= lobby.MaximumPeers {
-			SendCodeWithMessage(c, nil, "LOBBY_FULL")
-			return
-		}
-	}
-
-	// Check if the lobby is currently locked, and if so, abort
-	if lobby.Locked {
-		SendCodeWithMessage(c, nil, "LOBBY_LOCKED")
-		return
-	}
-
-	// Check if a password is required, and if so, verify the password
-	/*if lobby.PasswordRequired {
-		if err := accounts.VerifyPassword(packet.Payload.Password, lobby.Password); err != nil {
-			SendCodeWithMessage(c,
-				"Password incorrect.",
-				"PASSWORD_FAIL",
-			)
-			return
-		}
-	}*/
-	if err := accounts.VerifyPassword(packet.Payload.Password, lobby.Password); err != nil {
-		SendCodeWithMessage(c, nil, "PASSWORD_FAIL")
-		return
-	}
-
-	// Config the client as a peer
-	c.IsPeer = true
-	c.Lobby = packet.Payload.LobbyID
-
-	// Notify the host that a new peer has joined
-	SendMessage(hosts[0], &structs.SignalPacket{
-		Opcode: "NEW_PEER",
-		Payload: &structs.NewPeerParams{
-			ID:   c.ULID,
-			User: c.Username,
-		},
-	})
-
-	// Tell the client that they are now a peer
-	SendCodeWithMessage(c, nil, "ACK_PEER")
-}
-
-func HandleConfigHostOpcode(c *structs.Client, rawPacket []byte) {
-	// Check if the client has a valid session
-	if !c.ValidSession {
-		SendCodeWithMessage(c, nil, "CONFIG_REQUIRED")
-		return
-	}
-
-	// Check if the client is already a host
-	if c.IsHost {
-		SendCodeWithMessage(c, nil, "ALREADY_HOST")
-		return
-	}
-
-	// Remarshal using HostConfigPacket
-	packet := &structs.HostConfigPacket{}
-	if err := json.Unmarshal(rawPacket, &packet); err != nil {
-		log.Printf("[Signaling] Error reading packet: %s", err)
-		SendCodeWithMessage(c, err.Error())
-		return
-	}
-
-	// Validate
-	if msg := utils.StructContainsValidationError(validate.Struct(packet.Payload)); msg != nil {
-		SendCodeWithMessage(c, msg)
-		return
-	}
-
-	// Check if a lobby exists within the current game. If not, create one.
-	matches := Manager.GetHostClientsByUGIAndLobby(c.UGI, packet.Payload.LobbyID)
-	if len(matches) != 0 {
-		// Cannot create lobby since it already exists
-		SendCodeWithMessage(c, "LOBBY_EXISTS")
-		return
-	}
-
-	// Config the client as a host
-	c.IsHost = true
-	c.Lobby = packet.Payload.LobbyID
-
-	// Create lobby and store the desired settings
-	lobby := Manager.CreateLobbyConfigStorage(c.UGI, packet.Payload.LobbyID)
-
-	// Store lobby settings.
-	// TODO: I'm pretty sure there's a more elegant way to do this...
-	lobby.ID = packet.Payload.LobbyID
-	lobby.MaximumPeers = packet.Payload.MaximumPeers
-	lobby.AllowHostReclaim = packet.Payload.AllowHostReclaim
-	lobby.AllowPeersToReclaim = packet.Payload.AllowPeersToReclaim
-	lobby.CurrentOwnerID = c.ID
-	lobby.CurrentOwnerULID = c.ULID
-	// lobby.PasswordRequired = (packet.Payload.Password != "")
-	lobby.Locked = false
-
-	// Hash the password to store
-	/*if lobby.PasswordRequired {
-		lobby.Password = accounts.HashPassword(packet.Payload.Password)
-	}*/
-	lobby.Password = accounts.HashPassword(packet.Payload.Password)
-
-	// Broadcast new host
-	log.Printf("[Signaling] Client %d is now a host in lobby %s and UGI %s", c.ID, packet.Payload.LobbyID, c.UGI)
-	BroadcastMessage(Manager.GetAllClientsWithoutLobby(c.UGI), &structs.SignalPacket{
-		Opcode: "NEW_HOST",
-		Payload: &structs.NewHostParams{
-			ID:      c.ULID,
-			User:    c.Username,
-			LobbyID: c.Lobby,
-		},
-	})
-
-	// Tell the client the lobby has been created
-	SendCodeWithMessage(c, nil, "ACK_HOST")
-}
-
-func HandleKeepaliveOpcode(c *structs.Client) {
-	SendCodeWithMessage(c, nil, "KEEPALIVE")
-}
-
-func HandleInitOpcode(c *structs.Client, packet *structs.SignalPacket, dm *dm.Manager, r *http.Request) {
-	if c.ValidSession {
-		SendCodeWithMessage(c, nil, "SESSION_EXISTS")
-		return
-	}
-
-	// Assert the payload is a string, and a valid ULID
-	var ulidToken string
-	if msg := utils.VariableContainsValidationError("payload", validate.Var(packet.Payload, "ulid")); msg != nil {
-		SendCodeWithMessage(c, msg)
-		return
-	} else {
-		ulidToken = packet.Payload.(string)
-	}
-
-	// Check if the token is valid in the DB
-	tmpClient, err := dm.VerifySessionToken(ulidToken)
-	if err != nil {
-		SendCodeWithMessage(c.Conn, err.Error())
-		return
-	}
-
-	// Check if the user is already connected
-	if Manager.GetClientByULID(tmpClient.ULID) != nil {
-		SendCodeWithMessage(c, nil, "SESSION_EXISTS")
-		return
-	}
-
-	// Check if origin matches
-	if tmpClient.Origin != r.URL.Hostname() {
-		SendCodeWithMessage(c, nil, "TOKEN_ORIGIN_MISMATCH")
-		return
-	}
-
-	// Check if token has expired
-	if tmpClient.Expiry < time.Now().Unix() {
-		SendCodeWithMessage(c, nil, "TOKEN_EXPIRED")
-		return
-	}
-
-	// Configure client session
-	c.Authorization = packet.Payload.(string)
-	c.ULID = tmpClient.ULID
-	c.Username = tmpClient.Username
-	c.Expiry = tmpClient.Expiry
-	c.ValidSession = true
-
-	// Get game name and developer name for the client
-	gameName, developerName, _ := dm.VerifyUGI(c.UGI)
-
-	// Send INIT_OK signal
-	SendMessage(c, &structs.SignalPacket{
-		Opcode: "INIT_OK",
-		Payload: &structs.InitOK{
-			User:      c.Username,
-			Id:        tmpClient.ULID,
-			Game:      gameName,
-			Developer: developerName,
-		},
-	})
-}
-
-func SendMessage(c *structs.Client, packet any) {
-	if c == nil {
-		log.Println("[Signaling] WARNING: Attempted to send a message to a nil client.")
-		return
-	}
-
-	// Get a lock so that we don't send multiple messages at once
-	c.Lock.Lock()
-
-	// Send message and unlock
-	defer c.Lock.Unlock()
-	c.Conn.WriteJSON(packet)
-}
-
-func BroadcastMessage(c []*structs.Client, packet any) {
-	for _, client := range c {
-		go SendMessage(client, packet)
-	}
+	// Close connection.
+	client.Conn.Close()
 }

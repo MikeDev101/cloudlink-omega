@@ -62,7 +62,6 @@ func SignalingRouter(r chi.Router) {
 		})
 
 		// Handle connection with websocket
-		defer signaling.PrepareToClose(client)
 		signaling.MessageHandler(client, dm, r)
 
 	})

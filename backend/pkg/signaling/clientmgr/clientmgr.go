@@ -123,8 +123,6 @@ func (db *ClientDB) GetClientByULID(query string) *structs.Client {
 
 // SELECT client FROM clients WHERE UGI = (ugi) AND Lobby = (lobby) AND Peer = 1
 func (db *ClientDB) GetPeerClientsByUGIAndLobby(ugi string, lobby string) []*structs.Client {
-	var res []*structs.Client
-
 	log.Printf("[Client Manager] Finding all peers given UGI %s and lobby %s...", ugi, lobby)
 
 	// Get read lock
@@ -132,24 +130,43 @@ func (db *ClientDB) GetPeerClientsByUGIAndLobby(ugi string, lobby string) []*str
 
 	// Return match and free lock
 	defer db.queryLock.Unlock()
-	func() {
+	return func() (res []*structs.Client) {
 		for _, client := range db.clients {
 			if client.UGI == ugi && client.Lobby == lobby && client.IsPeer {
 				log.Printf("[Client Manager] Found match, appending client %d...", client.ID)
 				res = append(res, client)
 			}
 		}
+		if len(res) == 0 {
+			log.Printf("[Client Manager] No peers found matching lobby %s in UGI %s", lobby, ugi)
+		}
+		return res
 	}()
-	if res == nil {
-		log.Printf("[Client Manager] No peers found matching lobby %s in UGI %s", lobby, ugi)
-	}
-	return res
+}
+
+// SELECT client FROM clients WHERE ULID = (ulid) AND UGI = (ugi) AND Lobby = (lobby) AND Peer = 1
+func (db *ClientDB) GetPeerClientBySpecificULIDinUGIAndLobby(ulid string, ugi string, lobby string) *structs.Client {
+	log.Printf("[Client Manager] Finding peer given ULID %s in UGI %s and lobby %s...", ulid, ugi, lobby)
+
+	// Get read lock
+	db.queryLock.Lock()
+
+	// Return match and free lock
+	defer db.queryLock.Unlock()
+	return func() *structs.Client {
+		for _, client := range db.clients {
+			if client.UGI == ugi && client.Lobby == lobby && client.IsPeer && client.ULID == ulid {
+				log.Printf("[Client Manager] Found match, returning client %d...", client.ID)
+				return client
+			}
+		}
+		log.Printf("[Client Manager] No peer found matching ULID %s in lobby %s in UGI %s", ulid, lobby, ugi)
+		return nil
+	}()
 }
 
 // SELECT client FROM clients WHERE UGI = (ugi) AND Lobby = (lobby) AND Host = 1 AND Peer = 0
 func (db *ClientDB) GetHostClientsByUGIAndLobby(ugi string, lobby string) []*structs.Client {
-	var res []*structs.Client
-
 	log.Printf("[Client Manager] Finding all hosts given UGI %s and lobby %s...", ugi, lobby)
 
 	// Get read lock
@@ -157,24 +174,22 @@ func (db *ClientDB) GetHostClientsByUGIAndLobby(ugi string, lobby string) []*str
 
 	// Return match and free lock
 	defer db.queryLock.Unlock()
-	func() {
+	return func() (res []*structs.Client) {
 		for _, client := range db.clients {
 			if client.UGI == ugi && client.Lobby == lobby && client.IsHost {
 				log.Printf("[Client Manager] Found match, appending client %d...", client.ID)
 				res = append(res, client)
 			}
 		}
+		if len(res) == 0 {
+			log.Printf("[Client Manager] No host found matching lobby %s in UGI %s", lobby, ugi)
+		}
+		return res
 	}()
-	if res == nil {
-		log.Printf("[Client Manager] No host found matching lobby %s in UGI %s", lobby, ugi)
-	}
-	return res
 }
 
 // SELECT client FROM clients WHERE UGI = (ugi) AND Lobby = ""
 func (db *ClientDB) GetAllClientsWithoutLobby(ugi string) []*structs.Client {
-	var res []*structs.Client
-
 	log.Printf("[Client Manager] Finding all clients without a lobby in UGI %s...", ugi)
 
 	// Get read lock
@@ -182,22 +197,22 @@ func (db *ClientDB) GetAllClientsWithoutLobby(ugi string) []*structs.Client {
 
 	// Return match and free lock
 	defer db.queryLock.Unlock()
-	func() {
+	return func() (res []*structs.Client) {
 		for _, client := range db.clients {
 			if client.UGI == ugi && client.Lobby == "" {
 				log.Printf("[Client Manager] Found match, appending client %d...", client.ID)
 				res = append(res, client)
 			}
 		}
+		if len(res) == 0 {
+			log.Printf("[Client Manager] No clients found without a lobby in UGI %s", ugi)
+		}
+		return res
 	}()
-	if res == nil {
-		log.Printf("[Client Manager] No clients found without a lobby in UGI %s", ugi)
-	}
-	return res
 }
 
 // SELECT ulid FROM clients
-func (db *ClientDB) GetAllClientULIDs() (ulids []string) {
+func (db *ClientDB) GetAllClientULIDs() []string {
 	log.Println("[Client Manager] Gathering all client ULIDs...")
 
 	// Get read lock
@@ -205,16 +220,16 @@ func (db *ClientDB) GetAllClientULIDs() (ulids []string) {
 
 	// Return all IDs and free lock
 	defer db.queryLock.Unlock()
-	func() {
+	return func() (ulids []string) {
 		for _, client := range db.clients {
 			ulids = append(ulids, client.ULID)
 		}
+		return ulids
 	}()
-	return ulids
 }
 
 // SELECT client FROM clients
-func (db *ClientDB) GetAllClients() (clients []*structs.Client) {
+func (db *ClientDB) GetAllClients() []*structs.Client {
 	log.Println("[Client Manager] Gathering all clients...")
 
 	// Get read lock
@@ -222,52 +237,54 @@ func (db *ClientDB) GetAllClients() (clients []*structs.Client) {
 
 	// Return all clients and free lock
 	defer db.queryLock.Unlock()
-	func() {
+	return func() (clients []*structs.Client) {
 		for _, client := range db.clients {
 			clients = append(clients, client)
 		}
+		return clients
 	}()
-	return clients
 }
 
 // SELECT * FROM clients WHERE UGI LIKE (ugi)
 func (db *ClientDB) GetClientsByUGI(ugi string) []*structs.Client {
-	log.Printf("[Client Manager] Gathering all clients with UGI %s...", ugi)
-
-	var clients []*structs.Client
 
 	// Get read lock
 	db.queryLock.Lock()
 
+	log.Printf("[Client Manager] Gathering all clients with UGI %s...", ugi)
+
 	defer db.queryLock.Unlock()
-	for _, client := range db.clients {
-		if strings.Compare(client.UGI, ugi) == 0 {
-			clients = append(clients, client)
+	return func() (clients []*structs.Client) {
+		for _, client := range db.clients {
+			if strings.Compare(client.UGI, ugi) == 0 {
+				clients = append(clients, client)
+			}
 		}
-	}
-	return clients
+		return clients
+	}()
 }
 
 // GetAllHostsByUGI returns all clients that are hosts for the given UGI.
 // SELECT * FROM clients WHERE UGI LIKE (ugi) AND IsHost = 1
 func (db *ClientDB) GetAllHostsByUGI(ugi string) []*structs.Client {
-	log.Printf("[Client Manager] Gathering all hosts within UGI %s...", ugi)
-
-	var clients []*structs.Client
 
 	// Get read lock
 	db.queryLock.Lock()
 
+	log.Printf("[Client Manager] Gathering all hosts within UGI %s...", ugi)
+
 	defer db.queryLock.Unlock()
-	for _, client := range db.clients {
-		if client.IsHost {
-			continue
+	return func() (clients []*structs.Client) {
+		for _, client := range db.clients {
+			if client.IsHost {
+				continue
+			}
+			if strings.Compare(client.UGI, ugi) == 0 {
+				clients = append(clients, client)
+			}
 		}
-		if strings.Compare(client.UGI, ugi) == 0 {
-			clients = append(clients, client)
-		}
-	}
-	return clients
+		return clients
+	}()
 }
 
 // GetAllHostsByUGI returns all clients that are peers for the given UGI.
@@ -275,27 +292,27 @@ func (db *ClientDB) GetAllHostsByUGI(ugi string) []*structs.Client {
 func (db *ClientDB) GetAllPeersByUGI(ugi string) []*structs.Client {
 	log.Printf("[Client Manager] Gathering all peers within UGI %s...", ugi)
 
-	var clients []*structs.Client
-
 	// Get read lock
 	db.queryLock.Lock()
 
 	defer db.queryLock.Unlock()
-	for _, client := range db.clients {
-		if !client.IsHost {
-			continue
+	return func() (clients []*structs.Client) {
+		for _, client := range db.clients {
+			if !client.IsHost {
+				continue
+			}
+			if strings.Compare(client.UGI, ugi) == 0 {
+				clients = append(clients, client)
+			}
 		}
-		if strings.Compare(client.UGI, ugi) == 0 {
-			clients = append(clients, client)
-		}
-	}
-	return clients
+		return clients
+	}()
 }
 
 // GetClientsByUsernameSimilarTo returns all clients that have a username similar to the query.
 // Each individual client will get a read lock if matched.
 // SELECT * FROM clients WHERE Name LIKE (query)%
-func (db *ClientDB) GetClientsByUsernameSimilarTo(query string) (clients []*structs.Client) {
+func (db *ClientDB) GetClientsByUsernameSimilarTo(query string) []*structs.Client {
 	log.Printf("[Client Manager] Finding all clients with similar username: %s...", query)
 
 	// Get read lock
@@ -303,10 +320,12 @@ func (db *ClientDB) GetClientsByUsernameSimilarTo(query string) (clients []*stru
 
 	// Return all matches and release locks
 	defer db.queryLock.Unlock()
-	for _, client := range db.clients {
-		if strings.HasPrefix(client.Username, query) {
-			clients = append(clients, client)
+	return func() (clients []*structs.Client) {
+		for _, client := range db.clients {
+			if strings.Contains(client.Username, query) {
+				clients = append(clients, client)
+			}
 		}
-	}
-	return clients
+		return clients
+	}()
 }

@@ -8,7 +8,6 @@ type LobbyConfigStore struct {
 	AllowPeersToReclaim bool
 	CurrentOwnerID      uint64 // For client manager tracking only
 	CurrentOwnerULID    string // For signaling
-	Password            string // Scrypt hash, otherwise optional.
-	PasswordRequired    bool
+	Password            string // Scrypt hash or empty
 	Locked              bool
 }

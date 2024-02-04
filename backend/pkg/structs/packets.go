@@ -2,10 +2,11 @@ package structs
 
 // Declare the packet format for signaling.
 type SignalPacket struct {
-	Opcode    string `json:"opcode" validate:"required" label:"opcode"`
-	Payload   any    `json:"payload,omitempty" validate:"required" label:"payload"`
-	Origin    string `json:"origin,omitempty" validate:"omitempty,ulid" label:"origin"`
-	Recipient string `json:"recipient,omitempty" validate:"omitempty,ulid" label:"recipient"`
+	Opcode    string `json:"opcode" validate:"required" label:"opcode"`                       // Required for protocol compliance
+	Payload   any    `json:"payload,omitempty" validate:"required" label:"payload"`           // Required for protocol compliance
+	Origin    string `json:"origin,omitempty" validate:"omitempty,ulid" label:"origin"`       // Server -> Client, identifies client that sent the message
+	Recipient string `json:"recipient,omitempty" validate:"omitempty,ulid" label:"recipient"` // Client -> Server, identifies client that should receive the message
+	Listener  string `json:"listener,omitempty" validate:"omitempty" label:"listener"`        // For clients to listen to server replies
 }
 
 // JSON structure for signaling INIT_OK response.
