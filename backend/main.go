@@ -52,7 +52,6 @@ func main() {
 	api.RunServer(
 		os.Getenv("API_HOST"),
 		apiPort,
-		os.Getenv("STUN_TURN_HOST"),
 		mgr,
 	)
 }
