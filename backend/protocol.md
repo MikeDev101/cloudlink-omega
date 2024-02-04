@@ -1,13 +1,9 @@
-# CL Omega Protocol
-This wiki page defines the WebRTC/WebSocket protocol used by CL Omega for signaling and messaging.
-> Note: this is a draft!
-
-# Message format
+# CL5 / CloudLink Omega Protocol
 All protocol messages are JSON-encoded text frames.
 ```js
 {
 	opcode: string, // See opcodes
-	payload: any,
+	payload: any, // By default, this will be nested JSON. Otherwise, this will be SDP offers/answers or ICE candidates.
 	origin: string, // ULID, defined server-side to identify relayed message's sender
 	recipient: string, // ULID, defined client-side to specify which peer to relay to
 	listener: string, // Optional, use to keep track of the server's responses to commands
@@ -124,6 +120,18 @@ This message is sent when the server has made a peer the new host of a lobby.
 		user: string // gamertag of the host
 		lobby_id: string // The lobby ID the peer has been made the host on
 	},
+}
+```
+
+### `MAKE_OFFER`, `MAKE_ANSWER`, `ICE` format
+These commands will share a similar format. When sending a message, you must specify `recipient`. The server will relay the request with `origin`.
+
+```js
+{
+	opcode: "MAKE_OFFER", // or MAKE_ANSWER or ICE
+	payload: { . . . }, // Insert your SDP offer/answer or ICE candidate here
+	recipient: string, // Must be a valid ULID
+	origin: string, // Do not set manually, defined by the server.
 }
 ```
 
