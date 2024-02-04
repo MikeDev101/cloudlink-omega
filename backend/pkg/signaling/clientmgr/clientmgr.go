@@ -144,8 +144,8 @@ func (db *ClientDB) GetPeerClientsByUGIAndLobby(ugi string, lobby string) []*str
 	}()
 }
 
-// SELECT client FROM clients WHERE ULID = (ulid) AND UGI = (ugi) AND Lobby = (lobby) AND Peer = 1
-func (db *ClientDB) GetPeerClientBySpecificULIDinUGIAndLobby(ulid string, ugi string, lobby string) *structs.Client {
+// SELECT client FROM clients WHERE ULID = (ulid) AND UGI = (ugi) AND Lobby = (lobby)
+func (db *ClientDB) GetClientBySpecificULIDinUGIAndLobby(ulid string, ugi string, lobby string) *structs.Client {
 	log.Printf("[Client Manager] Finding peer given ULID %s in UGI %s and lobby %s...", ulid, ugi, lobby)
 
 	// Get read lock
@@ -155,7 +155,7 @@ func (db *ClientDB) GetPeerClientBySpecificULIDinUGIAndLobby(ulid string, ugi st
 	defer db.queryLock.Unlock()
 	return func() *structs.Client {
 		for _, client := range db.clients {
-			if client.UGI == ugi && client.Lobby == lobby && client.IsPeer && client.ULID == ulid {
+			if client.UGI == ugi && client.Lobby == lobby && client.ULID == ulid {
 				log.Printf("[Client Manager] Found match, returning client %d...", client.ID)
 				return client
 			}

@@ -69,8 +69,80 @@ func MessageHandler(c *structs.Client, dm *dm.Manager, r *http.Request) {
 			HandleConfigPeerOpcode(c, packet, rawPacket)
 		case "MAKE_OFFER":
 			HandleMakeOfferOpcode(c, packet)
+		case "MAKE_ANSWER":
+			HandleMakeAnswerOpcode(c, packet)
+		case "ICE":
+			HandleICEOpcode(c, packet)
 		}
 	}
+}
+
+func HandleICEOpcode(c *structs.Client, packet *structs.SignalPacket) {
+	// Check if the client has a valid session
+	if !c.ValidSession {
+		SendCodeWithMessage(c, nil, "CONFIG_REQUIRED", packet.Listener)
+		return
+	}
+
+	// Verify the recipient argument is a valid ULID
+	if msg := utils.VariableContainsValidationError("recipient", validate.Var(packet.Recipient, "ulid")); msg != nil {
+		SendCodeWithMessage(c, msg, "WARNING", packet.Listener)
+		return
+	}
+
+	// Check if the recipient exists
+	recipient := Manager.GetClientBySpecificULIDinUGIAndLobby(packet.Recipient, c.UGI, c.Lobby)
+	if recipient == nil {
+		SendCodeWithMessage(c, nil, "PEER_INVALID", packet.Listener)
+		return
+	}
+
+	// Relay the offer
+	SendMessage(recipient, &structs.SignalPacket{
+		Opcode:  "ICE",
+		Origin:  c.UGI,
+		Payload: packet.Payload,
+	})
+
+	// Tell the peer that the answer was relayed successfully
+	SendCodeWithMessage(c, nil, "RELAY_OK", packet.Listener)
+}
+
+func HandleMakeAnswerOpcode(c *structs.Client, packet *structs.SignalPacket) {
+	// Check if the client has a valid session
+	if !c.ValidSession {
+		SendCodeWithMessage(c, nil, "CONFIG_REQUIRED", packet.Listener)
+		return
+	}
+
+	// Require that the client is a peer
+	if !c.IsPeer {
+		SendCodeWithMessage(c, nil, "NOT_PEER", packet.Listener)
+		return
+	}
+
+	// Verify the recipient argument is a valid ULID
+	if msg := utils.VariableContainsValidationError("recipient", validate.Var(packet.Recipient, "ulid")); msg != nil {
+		SendCodeWithMessage(c, msg, "WARNING", packet.Listener)
+		return
+	}
+
+	// Check if the recipient exists
+	recipient := Manager.GetClientBySpecificULIDinUGIAndLobby(packet.Recipient, c.UGI, c.Lobby)
+	if recipient == nil {
+		SendCodeWithMessage(c, nil, "PEER_INVALID", packet.Listener)
+		return
+	}
+
+	// Relay the offer
+	SendMessage(recipient, &structs.SignalPacket{
+		Opcode:  "MAKE_ANSWER",
+		Origin:  c.UGI,
+		Payload: packet.Payload,
+	})
+
+	// Tell the peer that the answer was relayed successfully
+	SendCodeWithMessage(c, nil, "RELAY_OK", packet.Listener)
 }
 
 func HandleMakeOfferOpcode(c *structs.Client, packet *structs.SignalPacket) {
@@ -93,7 +165,7 @@ func HandleMakeOfferOpcode(c *structs.Client, packet *structs.SignalPacket) {
 	}
 
 	// Check if the recipient exists
-	recipient := Manager.GetPeerClientBySpecificULIDinUGIAndLobby(packet.Recipient, c.UGI, c.Lobby)
+	recipient := Manager.GetClientBySpecificULIDinUGIAndLobby(packet.Recipient, c.UGI, c.Lobby)
 	if recipient == nil {
 		SendCodeWithMessage(c, nil, "PEER_INVALID", packet.Listener)
 		return
