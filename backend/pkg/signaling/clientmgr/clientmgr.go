@@ -52,25 +52,22 @@ func (db *ClientDB) CreateLobbyConfigStorage(ugi string, lobbyname string) *stru
 	return db.Lobbies[ugi][lobbyname]
 }
 
+func (db *ClientDB) GetLobbyConfigStorage(ugi string, lobbyname string) *structs.LobbyConfigStore {
+
+	// Get read lock
+	db.queryLock.Lock()
+
+	// Read config and free lock
+	defer db.queryLock.Unlock()
+	return func() *structs.LobbyConfigStore {
+		if _, ok := db.Lobbies[ugi]; !ok {
+			return nil
+		}
+		return db.Lobbies[ugi][lobbyname]
+	}()
+}
+
 func (db *ClientDB) Delete(client *structs.Client) {
-	log.Printf("[Client Manager] Preparing to delete client (%d) in %s...", client.ID, client.UGI)
-
-	// Before we delete the client, check if it was a host.
-	if client.IsHost {
-
-		// If the client was a host, check if the lobby is empty. If it is, delete the lobby.
-		if peers := db.GetPeerClientsByUGIAndLobby(client.UGI, client.Lobby); len(peers) == 0 {
-
-			log.Printf("[Client Manager] Deleting unused lobby config store %s in UGI %s...", client.Lobby, client.UGI)
-			delete(db.Lobbies[client.UGI], client.Lobby)
-		}
-
-		// Check if the root UGI has no remaining lobbies. If there are no remaining lobbies, delete the root UGI lobby manager.
-		if len(db.Lobbies[client.UGI]) == 0 {
-			log.Printf("[Client Manager] Deleting unused UGI %s root lobby config store...", client.UGI)
-			delete(db.Lobbies, client.UGI)
-		}
-	}
 
 	// Get write lock
 	db.queryLock.Lock()
