@@ -100,7 +100,7 @@ func HandleICEOpcode(c *structs.Client, packet *structs.SignalPacket) {
 	// Relay the offer
 	SendMessage(recipient, &structs.SignalPacket{
 		Opcode:  "ICE",
-		Origin:  c.UGI,
+		Origin:  c.ULID,
 		Payload: packet.Payload,
 	})
 
@@ -137,7 +137,7 @@ func HandleMakeAnswerOpcode(c *structs.Client, packet *structs.SignalPacket) {
 	// Relay the offer
 	SendMessage(recipient, &structs.SignalPacket{
 		Opcode:  "MAKE_ANSWER",
-		Origin:  c.UGI,
+		Origin:  c.ULID,
 		Payload: packet.Payload,
 	})
 
@@ -174,7 +174,7 @@ func HandleMakeOfferOpcode(c *structs.Client, packet *structs.SignalPacket) {
 	// Relay the offer
 	SendMessage(recipient, &structs.SignalPacket{
 		Opcode:  "MAKE_OFFER",
-		Origin:  c.UGI,
+		Origin:  c.ULID,
 		Payload: packet.Payload,
 	})
 
