@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"strconv"
-	"sync"
 
 	godotenv "github.com/joho/godotenv"
 	api "github.com/mikedev101/cloudlink-omega/backend/pkg/api"
@@ -30,8 +29,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Get port
-	port, err := strconv.Atoi(os.Getenv("API_PORT"))
+	// Get API port
+	apiPort, err := strconv.Atoi(os.Getenv("API_PORT"))
 	if err != nil {
 		panic(err)
 	}
@@ -49,20 +48,11 @@ func main() {
 		os.Getenv("REDIS_URL"),
 	)
 
-	// Create wait group
-	var wg sync.WaitGroup
-
-	// Start REST API
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		err := api.RunServer(
-			os.Getenv("API_HOST"), port, mgr)
-		if err != nil {
-			panic(err)
-		}
-	}()
-
-	// Wait for all services to stop
-	wg.Wait()
+	// Run the server
+	api.RunServer(
+		os.Getenv("API_HOST"),
+		apiPort,
+		os.Getenv("STUN_TURN_HOST"),
+		mgr,
+	)
 }
