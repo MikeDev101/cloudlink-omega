@@ -10,6 +10,7 @@ All protocol messages are JSON-encoded text frames.
 	payload: any,
 	origin: string, // ULID, defined server-side to identify relayed message's sender
 	recipient: string, // ULID, defined client-side to specify which peer to relay to
+	listener: string, // Optional, use to keep track of the server's responses to commands
 }
 ```
 
@@ -131,11 +132,22 @@ This message is sent when the server has made a peer the new host of a lobby.
 
 | Opcode | Description |
 |--------|-------------|
-| VIOLATION | Protocol exception. |
-| WARNING | Protocol warning message. Used when VIOLATION isn't necessary. |
-| KEEPALIVE | Ping/pong. |
 | INIT | Authenticates the connection given a valid login token. |
 | INIT_OK | Returns game info and username data upon successful login. |
+| VIOLATION | Protocol exception. |
+| WARNING | Generic warning message. |
+| CONFIG_REQUIRED | Warning message when you haven't sent the INIT command. |
+| KEEPALIVE | Ping/pong. |
+| RELAY_OK | Generic success code for MAKE_OFFER, MAKE_ANSWER, and ICE. |
+| ALREADY_HOST | Warning message when trying to use CONFIG_HOST more than once. |
+| ALREADY_PEER | Warning message when trying to use CONFIG_PEER more than once. |
+| NOT_PEER | Warning message when trying to use MAKE_ANSWER as a host (should be a peer). |
+| NOT_HOST | Warning message when trying to use MAKE_OFFER as a peer (should be a host). |
+| SESSION_EXISTS | Warning message when trying to login to the same account on more than once device or attempting to reuse INIT command. |
+| TOKEN_INVALID | Warning message when the provided token in INIT is invalid. |
+| TOKEN_ORIGIN_MISMATCH | Warning message when the provided token is used on a different website than it was generated for. |
+| TOKEN_EXPIRED | Warning message when the provided token has expired (tokens have a lifespan of 24 hours). |
+| PEER_INVALID | Message undeliverable: Peer not found. |
 | CONFIG_HOST | Tells the server to make the client a game host, and create a lobby. |
 | CONFIG_PEER | Tells the server to make the client a game peer, and join a lobby. |
 | ACK_HOST | Server replied to host request, made the client a host, and has created a lobby. |
@@ -145,20 +157,16 @@ This message is sent when the server has made a peer the new host of a lobby.
 | MAKE_OFFER | Relay an SDP offer from host to peer. |
 | MAKE_ANSWER | Relay an SDP answer from peer to host. |
 | ICE | Relay ICE candidates to/from peer/host. |
-| ABORT_OFFER | Abort an SDP offer. |
-| ABORT_ANSWER | Abort an SDP answer. |
-| SHUTDOWN | Notify the signaler that the host has disconnected. |
 | LOBBY_EXISTS | Cannot create lobby because it already exists. |
 | LOBBY_NOTFOUND | Cannot join lobby because it does not exist. |
 | LOBBY_FULL | Cannot join lobby because it is currently full. |
 | LOBBY_LOCKED | Cannot join lobby because it is currently locked. |
 | LOBBY_CLOSE | The host/server has decided to shutdown the lobby. |
-| HOST_GONE | The server has decided to allow peers to negotiate who will be the new lobby host. |
-| PEER_GONE | Notify the server that a peer has disconnected. |
+| HOST_GONE | Server event that notifies peers that the host has disconnected. |
+| PEER_GONE | Server event that notifies a host that a peer has disconnected. |
 | HOST_RECLAIM | Server has made a different peer the lobby host. |
 | CLAIM_HOST | Ask the server to become the new lobby host. |
 | TRANSFER_HOST | Ask the server to transfer ownership of the lobby to a peer. |
-| ABANDON | Tell the server you are leaving a lobby. |
 | LOCK | Ask the server to prevent access to the lobby. |
 | UNLOCK | Ask the server to allow access to the lobby. |
 | SIZE | Ask the server to change the maximum peers value for a lobby. |
@@ -166,4 +174,3 @@ This message is sent when the server has made a peer the new host of a lobby.
 | PASSWORD_REQUIRED | Cannot join lobby because it requires a password. |
 | PASSWORD_ACK | Joining lobby: password accepted. |
 | PASSWORD_FAIL | Not joining lobby: password rejected. |
-| PEER_INVALID | Message undeliverable: Peer not found. |
