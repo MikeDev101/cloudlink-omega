@@ -3,8 +3,8 @@
     // Define class for authentication
     class AuthManager {
         constructor() {
-            this.loginUrl = "http://localhost:3000/api/v0/login";
-            this.registerUrl = "http://localhost:3000/api/v0/register";
+            this.loginUrl = "https://omega.mikedev101.cc/api/v0/login";
+            this.registerUrl = "https://omega.mikedev101.cc/api/v0/register";
             this.registerSuccess = false;
             this.loginSuccess = false;
             this.sessionToken = null;
@@ -261,7 +261,7 @@
         }
 
         Connect(ugi) {
-            this.url = new URL("ws://localhost:3000/api/v0/signaling");
+            this.url = new URL("wss://omega.mikedev101.cc/api/v0/signaling");
             this.url.searchParams.append('ugi', ugi);
             this.socket = new WebSocket(this.url);
 
