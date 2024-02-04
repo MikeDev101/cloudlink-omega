@@ -1,4 +1,4 @@
-class SimpleWebRTC {
+class OmegaRTC {
     constructor() {
         this.configuration = {
             iceServers: [
@@ -143,7 +143,7 @@ class SimpleWebRTC {
 }
 
 // Example usage:
-// const conn = new SimpleWebRTC();
+const conn = new OmegaRTC();
 
 // Host Mode
 // const { offer, dataChannel } = await conn.createOffer("remoteUser1");
