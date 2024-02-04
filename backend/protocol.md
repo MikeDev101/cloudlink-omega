@@ -10,6 +10,7 @@ All protocol messages are JSON-encoded text frames.
 	payload: any,
 	origin: string, // ULID, defined server-side to identify relayed message's sender
 	recipient: string, // ULID, defined client-side to specify which peer to relay to
+	listener: string, // Optional, use to keep track of the server's responses to commands
 }
 ```
 
