@@ -12,9 +12,10 @@ import (
 
 // In-memory pseudo-DB
 type ClientDB struct {
-	clients       map[uint64]*structs.Client // Client table.
-	idIncrementer uint64                     // ID Autoincrement.
-	queryLock     sync.Mutex                 // Locks the entire query process. Prevents deadlocks.
+	clients       map[uint64]*structs.Client                      // Clients.
+	idIncrementer uint64                                          // ID Autoincrement.
+	queryLock     sync.Mutex                                      // Locks the entire query process. Prevents deadlocks.
+	Lobbies       map[string]map[string]*structs.LobbyConfigStore // Lobbies.
 }
 
 // CREATE TABLE clients (ID INTEGER PRIMARY KEY, Game TEXT, Name TEXT)
@@ -24,14 +25,57 @@ func New() *ClientDB {
 		clients:       make(map[uint64]*structs.Client),
 		idIncrementer: 0, // AUTOINCREMENT
 		queryLock:     sync.Mutex{},
+		Lobbies:       make(map[string]map[string]*structs.LobbyConfigStore),
 	}
 }
 
-func (db *ClientDB) Delete(client *structs.Client) {
-	log.Printf("[Client Manager] Deleting client (%d) in %s...", client.ID, client.UGI)
+// CreateLobbyConfigStorage creates a new lobby config store for a specified UGI.
+// Returns the lobby config store.
+func (db *ClientDB) CreateLobbyConfigStorage(ugi string, lobbyname string) *structs.LobbyConfigStore {
 
 	// Get write lock
 	db.queryLock.Lock()
+
+	// Delete client and free lock
+	defer db.queryLock.Unlock()
+	func() {
+		// Check if the root UGI lobby store manager exists, and create it if it doesn't.
+		if _, ok := db.Lobbies[ugi]; !ok {
+			log.Printf("[Client Manager] Creating UGI %s root lobby config store...", ugi)
+			db.Lobbies[ugi] = make(map[string]*structs.LobbyConfigStore)
+		}
+
+		// Create the lobby config store
+		log.Printf("[Client Manager] Creating lobby %s configuration store in UGI %s...", lobbyname, ugi)
+		db.Lobbies[ugi][lobbyname] = &structs.LobbyConfigStore{}
+	}()
+	return db.Lobbies[ugi][lobbyname]
+}
+
+func (db *ClientDB) Delete(client *structs.Client) {
+	log.Printf("[Client Manager] Preparing to delete client (%d) in %s...", client.ID, client.UGI)
+
+	// Before we delete the client, check if it was a host.
+	if client.IsHost {
+
+		// If the client was a host, check if the lobby is empty. If it is, delete the lobby.
+		if peers := db.GetPeerClientsByUGIAndLobby(client.UGI, client.Lobby); len(peers) == 0 {
+
+			log.Printf("[Client Manager] Deleting unused lobby config store %s in UGI %s...", client.Lobby, client.UGI)
+			delete(db.Lobbies[client.UGI], client.Lobby)
+		}
+
+		// Check if the root UGI has no remaining lobbies. If there are no remaining lobbies, delete the root UGI lobby manager.
+		if len(db.Lobbies[client.UGI]) == 0 {
+			log.Printf("[Client Manager] Deleting unused UGI %s root lobby config store...", client.UGI)
+			delete(db.Lobbies, client.UGI)
+		}
+	}
+
+	// Get write lock
+	db.queryLock.Lock()
+
+	log.Printf("[Client Manager] Deleting client (%d) in %s...", client.ID, client.UGI)
 
 	// Delete client and free lock
 	defer db.queryLock.Unlock()
@@ -59,7 +103,32 @@ func (db *ClientDB) Add(client *structs.Client) *structs.Client {
 func (db *ClientDB) GetClientByULID(query string) *structs.Client {
 	var res *structs.Client = nil
 
+	// Get read lock
+	db.queryLock.Lock()
+
 	log.Printf("[Client Manager] Finding client given ULID %s...", query)
+
+	// Return match and free lock
+	defer db.queryLock.Unlock()
+	func() {
+		for _, client := range db.clients {
+			if client.ULID == query {
+				log.Printf("[Client Manager] Found match, returning client %d...", client.ID)
+				res = client
+			}
+		}
+	}()
+	if res == nil {
+		log.Printf("[Client Manager] No client found matching ULID %s", query)
+	}
+	return res
+}
+
+// SELECT client FROM clients WHERE UGI = (ugi) AND Lobby = (lobby) AND Peer = 1
+func (db *ClientDB) GetPeerClientsByUGIAndLobby(ugi string, lobby string) []*structs.Client {
+	var res []*structs.Client
+
+	log.Printf("[Client Manager] Finding all peers given UGI %s and lobby %s...", ugi, lobby)
 
 	// Get read lock
 	db.queryLock.Lock()
@@ -68,14 +137,64 @@ func (db *ClientDB) GetClientByULID(query string) *structs.Client {
 	defer db.queryLock.Unlock()
 	func() {
 		for _, client := range db.clients {
-			if client.ULID == query {
-				log.Printf("[Client Manager] Found client ULID match, returning client %d...", client.ID)
-				res = client
+			if client.UGI == ugi && client.Lobby == lobby && client.IsPeer {
+				log.Printf("[Client Manager] Found match, appending client %d...", client.ID)
+				res = append(res, client)
 			}
 		}
 	}()
 	if res == nil {
-		log.Printf("[Client Manager] No client found matching ULID %s", query)
+		log.Printf("[Client Manager] No peers found matching lobby %s in UGI %s", lobby, ugi)
+	}
+	return res
+}
+
+// SELECT client FROM clients WHERE UGI = (ugi) AND Lobby = (lobby) AND Host = 1 AND Peer = 0
+func (db *ClientDB) GetHostClientsByUGIAndLobby(ugi string, lobby string) []*structs.Client {
+	var res []*structs.Client
+
+	log.Printf("[Client Manager] Finding all hosts given UGI %s and lobby %s...", ugi, lobby)
+
+	// Get read lock
+	db.queryLock.Lock()
+
+	// Return match and free lock
+	defer db.queryLock.Unlock()
+	func() {
+		for _, client := range db.clients {
+			if client.UGI == ugi && client.Lobby == lobby && client.IsHost {
+				log.Printf("[Client Manager] Found match, appending client %d...", client.ID)
+				res = append(res, client)
+			}
+		}
+	}()
+	if res == nil {
+		log.Printf("[Client Manager] No host found matching lobby %s in UGI %s", lobby, ugi)
+	}
+	return res
+}
+
+// SELECT client FROM clients WHERE UGI = (ugi) AND Lobby = ""
+func (db *ClientDB) GetAllClientsWithoutLobby(ugi string) []*structs.Client {
+	var res []*structs.Client
+
+	log.Printf("[Client Manager] Finding all clients without a lobby in UGI %s...", ugi)
+
+	// Get read lock
+	db.queryLock.Lock()
+
+	// Return match and free lock
+	defer db.queryLock.Unlock()
+	func() {
+		for _, client := range db.clients {
+			if client.UGI == ugi && client.Lobby == "" {
+				log.Printf("[Client Manager] Found match, appending client %d...", client.ID)
+				res = append(res, client)
+			}
+		}
+	}()
+	if res == nil {
+		log.Printf("[Client Manager] No clients found without a lobby in UGI %s", ugi)
 	}
 	return res
 }
