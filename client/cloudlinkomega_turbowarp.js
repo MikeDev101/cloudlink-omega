@@ -87,7 +87,7 @@
 
         async createOffer(remoteUserId, remoteUserName) {
             const peerConnection = this.createPeerConnection(remoteUserId, remoteUserName);
-            const dataChannel = this.createDefaultChannel(peerConnection, remoteUserId);
+            const dataChannel = this.createDefaultChannel(peerConnection, remoteUserId, remoteUserName);
             try {
                 const offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
@@ -100,7 +100,7 @@
 
         async createAnswer(remoteUserId, remoteUserName, offer) {
             const peerConnection = this.createPeerConnection(remoteUserId, remoteUserName);
-            const dataChannel = this.createDefaultChannel(peerConnection, remoteUserId);
+            const dataChannel = this.createDefaultChannel(peerConnection, remoteUserId, remoteUserName);
             try {
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
                 const answer = await peerConnection.createAnswer();
@@ -152,10 +152,15 @@
                     this.iceCandidates.push(event.candidate);
                 }
 
+                // Log ICE candidates started gathering
+                if (event.target.iceGatheringState === 'new') {
+                    console.log(`Please wait, gathering ICE candidates for ${remoteUserName} (${remoteUserId}). This may take a moment...`);
+                }
+
                 // When all ICE candidates are gathered, send them to the remote peer
                 if (event.target.iceGatheringState === 'complete') {
                     if (this.messageHandlers.onIceGatheringDone[remoteUserId]) {
-                        console.log(`ICE candidate gathering done for ${remoteUserName} (${remoteUserId})`);
+                        console.log(`ICE candidate gathering complete for ${remoteUserName} (${remoteUserId}). Preparing your connection...`);
                         this.messageHandlers.onIceGatheringDone[remoteUserId]();
                     }
                 }
@@ -234,12 +239,12 @@
             }
         }
 
-        createDefaultChannel(peerConnection, remoteUserId) {
+        createDefaultChannel(peerConnection, remoteUserId, remoteUserName) {
             const dataChannel = peerConnection.createDataChannel(
                 'default',
                 { negotiated: true, id: 0, ordered: true, protocol: 'clomega' }
             );
-            this.handleDataChannel(dataChannel, remoteUserId, peerConnection.user);
+            this.handleDataChannel(dataChannel, remoteUserId, remoteUserName);
             return dataChannel;
         }
 
@@ -1062,6 +1067,11 @@
 
                 self.Signaling.onClose(() => {
                     console.log('Disconnected from signaling server.');
+
+                    // To be compliant with the protocol, we must close all peer connections.
+                    Array.from(self.WebRTC.peerConnections.keys()).forEach((peer) => {
+                        self.WebRTC.peerConnections.get(peer).close();
+                    })
                 })
 
                 self.Signaling.onNewPeer(async (peer, user) => {
@@ -1151,6 +1161,48 @@
                 throw new Error('Signaling server not connected');
             }
             self.Signaling.peerMode(LOBBY, PASSWORD, null);
+        }
+
+        send({DATA, PEER, CHANNEL, WAIT}) {
+            const self = this;
+
+            // Get channel.
+            // TODO: allow support for more than one channel. Currently only the default channel.
+            const channel = self.WebRTC.dataChannels.get(PEER);
+
+            if (!channel) {
+                throw new Error(`Peer ${PEER} not found`);
+            }
+
+            if (WAIT) {
+                // Set threshold to zero.
+                channel.bufferedAmountThreshold = 0; 
+            }
+
+            channel.send(JSON.stringify({
+                msgType: "data",
+                msgPayload: DATA,
+                msgOrigin: self.Signaling.state.user,
+            }))
+
+            if (WAIT) {
+                // Wait for buffer to finish flushing.
+                return new Promise((resolve) => {
+                    channel.onbufferedamountlow = () => {
+                        resolve();
+                    }
+                })
+            }
+        }
+
+        disconnect_peer({PEER}) {
+            const self = this;
+            const peerConnection = self.WebRTC.peerConnections.get(PEER);
+            if (!peerConnection) {
+                throw new Error(`Peer ${PEER} not found`);
+            }
+            // Close connection.
+            peerConnection.close();
         }
 
         leave() {
