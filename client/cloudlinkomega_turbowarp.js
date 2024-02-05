@@ -85,21 +85,21 @@
             this.iceCandidates = [];
         }
 
-        async createOffer(remoteUserId) {
-            const peerConnection = this.createPeerConnection(remoteUserId);
+        async createOffer(remoteUserId, remoteUserName) {
+            const peerConnection = this.createPeerConnection(remoteUserId, remoteUserName);
             const dataChannel = this.createDefaultChannel(peerConnection, remoteUserId);
             try {
                 const offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
                 return { offer, dataChannel };
             } catch (error) {
-                console.error(`Error creating offer for ${remoteUserId}: ${error}`);
+                console.error(`Error creating offer for ${peerConnection.user} (${remoteUserId}): ${error}`);
                 return null;
             }
         }
 
-        async createAnswer(remoteUserId, offer) {
-            const peerConnection = this.createPeerConnection(remoteUserId);
+        async createAnswer(remoteUserId, remoteUserName, offer) {
+            const peerConnection = this.createPeerConnection(remoteUserId, remoteUserName);
             const dataChannel = this.createDefaultChannel(peerConnection, remoteUserId);
             try {
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
@@ -107,7 +107,7 @@
                 await peerConnection.setLocalDescription(answer);
                 return { answer, dataChannel };
             } catch (error) {
-                console.error(`Error creating answer for ${remoteUserId}: ${error}`);
+                console.error(`Error creating answer for ${peerConnection.user} (${remoteUserId}): ${error}`);
                 return null;
             }
         }
@@ -118,10 +118,10 @@
                 try {
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
                 } catch (error) {
-                    console.error(`Error handling answer for ${remoteUserId}: ${error}`);
+                    console.error(`Error handling answer for ${peerConnection.user} (${remoteUserId}): ${error}`);
                 }
             } else {
-                console.error(`Peer connection not found for ${remoteUserId}`);
+                console.error(`Peer connection not found for ${peerConnection.user} (${remoteUserId})`);
             }
         }
 
@@ -132,15 +132,18 @@
                     const candidate = new RTCIceCandidate(iceCandidate);
                     peerConnection.addIceCandidate(candidate);
                 } catch (error) {
-                    console.error(`Error adding ice candidate for ${remoteUserId}: ${error}`);
+                    console.error(`Error adding ice candidate for ${peerConnection.user} (${remoteUserId}): ${error}`);
                 }
             } else {
-                console.error(`Peer connection not found for ${remoteUserId}`);
+                console.error(`Peer connection not found for ${peerConnection.user} (${remoteUserId})`);
             }
         }
 
-        createPeerConnection(remoteUserId) {
+        createPeerConnection(remoteUserId, remoteUserName) {
             const peerConnection = new RTCPeerConnection(this.configuration);
+
+            // Add new property to the peer connection
+            peerConnection.user = remoteUserName;
 
             peerConnection.onicecandidate = (event) => {
 
@@ -152,7 +155,7 @@
                 // When all ICE candidates are gathered, send them to the remote peer
                 if (event.target.iceGatheringState === 'complete') {
                     if (this.messageHandlers.onIceGatheringDone[remoteUserId]) {
-                        console.log("ICE candidate gathering done for", remoteUserId);
+                        console.log(`ICE candidate gathering done for ${remoteUserName} (${remoteUserId})`);
                         this.messageHandlers.onIceGatheringDone[remoteUserId]();
                     }
                 }
@@ -160,7 +163,35 @@
 
             peerConnection.ondatachannel = (event) => {
                 const dataChannel = event.channel;
-                this.handleDataChannel(dataChannel, remoteUserId);
+                this.handleDataChannel(dataChannel, remoteUserId, remoteUserName);
+            };
+
+            peerConnection.onconnectionstatechange = () => {
+                switch (peerConnection.connectionState) {
+                    case "new":
+                        console.log(`Peer ${remoteUserName} (${remoteUserId}) created.`);
+                        break;
+                    case "connecting":
+                        console.log(`Peer ${remoteUserName} (${remoteUserId}) connecting...`);
+                        break;
+                    case "connected":
+                        console.log(`Peer ${remoteUserName} (${remoteUserId}) connected.`);
+                        break;
+                    case "disconnected":
+                        console.log(`Peer ${remoteUserName} (${remoteUserId}) disconnecting...`);
+                        break;
+                    case "closed":
+                        console.log(`Peer ${remoteUserName} (${remoteUserId}) disconnected.`);
+                        this.peerConnections.delete(remoteUserId);
+                        break;
+                    case "failed":
+                        console.log(`Peer ${remoteUserName} (${remoteUserId}) connection failed.`);
+                        this.peerConnections.delete(remoteUserId);
+                        break;
+                    default:
+                        console.log(`Peer ${remoteUserName} (${remoteUserId}) connection state unknown.`);
+                        break;
+                }
             };
 
             this.peerConnections.set(remoteUserId, peerConnection);
@@ -168,29 +199,36 @@
             return peerConnection;
         }
 
-        handleDataChannel(dataChannel, remoteUserId) {
+        handleDataChannel(dataChannel, remoteUserId, remoteUserName) {
             if (!this.dataChannels.has(remoteUserId)) {
-                const defaultDataChannel = dataChannel;
-                this.dataChannels.set(remoteUserId, defaultDataChannel);
+                const channel = dataChannel;
+                this.dataChannels.set(remoteUserId, channel);
 
-                defaultDataChannel.onmessage = (event) => {
-                    console.log(`Received message from ${remoteUserId}: ${event.data}`);
+                channel.onmessage = (event) => {
+                    console.log(`Received message from ${remoteUserName} (${remoteUserId}) in channel ${channel.label}: ${event.data}`);
                     if (this.messageHandlers.onChannelMessage) {
                         this.messageHandlers.onChannelMessage(event.data, remoteUserId);
                     }
                 };
 
-                defaultDataChannel.onopen = () => {
-                    console.log(`Data channel with ${remoteUserId} opened`);
+                channel.onopen = () => {
+                    console.log(`Data channel ${channel.label} with ${remoteUserName} (${remoteUserId}) opened`);
                     if (this.messageHandlers.onChannelOpen) {
                         this.messageHandlers.onChannelOpen(remoteUserId);
                     }
                 };
 
-                defaultDataChannel.onclose = () => {
-                    console.log(`Data channel with ${remoteUserId} closed`);
+                channel.onclose = () => {
+                    console.log(`Data channel ${channel.label} with ${remoteUserName} (${remoteUserId}) closed`);
                     if (this.messageHandlers.onChannelClose) {
                         this.messageHandlers.onChannelClose(remoteUserId);
+                    }
+
+                    // If the default channel is closed, close the peer connection and remove it
+                    if (channel.label == "default") {
+                        console.log(`Manually closing peer connection ${remoteUserName} (${remoteUserId})`);
+                        this.peerConnections.get(remoteUserId).close();
+                        this.peerConnections.delete(remoteUserId);
                     }
                 };
             }
@@ -201,7 +239,7 @@
                 'default',
                 { negotiated: true, id: 0, ordered: true, protocol: 'clomega' }
             );
-            this.handleDataChannel(dataChannel, remoteUserId);
+            this.handleDataChannel(dataChannel, remoteUserId, peerConnection.user);
             return dataChannel;
         }
 
@@ -211,7 +249,7 @@
                 label,
                 { negotiated: true, id: id, ordered: ordered, protocol: 'clomega' }
             );
-            this.handleDataChannel(dataChannel, remoteUserId);
+            this.handleDataChannel(dataChannel, remoteUserId, peerConnection.user);
             return dataChannel;
         }
 
@@ -266,14 +304,12 @@
             this.socket = new WebSocket(this.url);
 
             this.socket.onopen = () => {
-                console.log('WebSocket connection opened');
                 if (this.messageHandlers.onConnect) {
                     this.messageHandlers.onConnect();
                 }
             };
 
             this.socket.onclose = (event) => {
-                console.log('WebSocket connection closed:', event);
 
                 // Clear values
                 this.state.id = "";
@@ -289,7 +325,7 @@
             };
 
             this.socket.onerror = (error) => {
-                console.error('WebSocket error:', error);
+                console.error('Signaling connection error:', error);
             };
 
             this.socket.onmessage = (event) => {
@@ -306,7 +342,7 @@
             const { opcode, payload, origin, listener } = message;
             switch (opcode) {
                 case 'INIT_OK':
-                    console.log('Protocol initialization successful.');
+                    console.log('Signaling login successful.');
                     this.state.user = payload.user;
                     this.state.id = payload.id;
                     this.state.game = payload.game;
@@ -316,11 +352,11 @@
                     }
                     break;
                 case "ACK_HOST":
-                    console.log("Protocol acknowledgement received: Operating in host mode.");
+                    console.log("Acknowledgement received: Operating in host mode.");
                     this.state.mode = 1;
                     break;
                 case "ACK_PEER":
-                    console.log("Protocol acknowledgement received: Operating in peer mode.");
+                    console.log("Acknowledgement received: Operating in peer mode.");
                     this.state.mode = 2;
                     break;
                 case "VIOLATION":
@@ -361,7 +397,7 @@
                     console.log("The host has left.");
                     break;
                 case "PEER_GONE":
-                    console.log("A peer has left.");
+                    console.log(`Peer ${payload} has left.`);
                     break;
                 case "SESSION_EXISTS":
                     console.warn("Protocol warning: Session already exists.");
@@ -1020,31 +1056,35 @@
                 self.Signaling.Connect(UGI);
 
                 // Bind event handlers
+                self.Signaling.onConnect(() => {
+                    console.log('Connected to signaling server.');
+                })
+
                 self.Signaling.onClose(() => {
-                    console.log('Disconnected from signaling server:');
+                    console.log('Disconnected from signaling server.');
                 })
 
                 self.Signaling.onNewPeer(async (peer, user) => {
+                    console.log(`New peer: ${user} (${peer})`);
 
                     // Create offer
-                    console.log('New peer:', peer, user);
-                    const { offer, dataChannel } = await self.WebRTC.createOffer(peer);
+                    const { offer, dataChannel } = await self.WebRTC.createOffer(peer, user);
 
                     // Send created offer
-                    console.log("Sending offer to", peer);
+                    console.log(`Sending offer to ${user} (${peer})`);
                     self.Signaling.sendOffer(peer, offer, null);
 
                     // Configure onAnswer event
                     self.Signaling.onAnswer(peer, async(origin, answer) => {
 
                         // Handle answer to offer
-                        console.log("Got answer from", origin);
+                        console.log(`Got answer from ${user} (${origin})`);
                         await self.WebRTC.handleAnswer(origin, answer);
 
                         // Send ICE candidates to the host
                         self.WebRTC.onIceGatheringDone(origin, () => {
+                            console.log(`Sending ICE offers to ${user} (${origin})`);
                             self.WebRTC.iceCandidates.forEach((candidate) => {
-                                console.log("Sending ice candidate to", origin);
                                 self.Signaling.sendIceCandidate(origin, candidate);
                             })
                         })
@@ -1052,23 +1092,23 @@
                 })
 
                 self.Signaling.onNewHost((peer, lobby, user) => {
-                    console.log('New host:', peer, lobby, user);
+                    console.log(`New host: ${user} (${peer}) in lobby ${lobby}`);
 
                     // Configure onOffer event
                     self.Signaling.onOffer(async (origin, offer) => {
 
                         // Make answer from offer
-                        console.log("Got offer from", origin);
-                        const { answer, dataChannel } = await self.WebRTC.createAnswer(origin, offer);
+                        console.log(`Got offer from ${user} (${origin})`);
+                        const { answer, dataChannel } = await self.WebRTC.createAnswer(origin, user, offer);
                         
                         // Send answer
-                        console.log("Sending answer to", origin);
+                        console.log(`Sending answer to ${user} (${origin})`);
                         self.Signaling.sendAnswer(origin, answer, null);
 
                         // Send ICE candidates to the host
                         self.WebRTC.onIceGatheringDone(origin, () => {
+                            console.log(`Sending ICE offers to ${user} (${origin})`);
                             self.WebRTC.iceCandidates.forEach((candidate) => {
-                                console.log("Sending ice candidate to", origin);
                                 self.Signaling.sendIceCandidate(origin, candidate);
                             })
                         })
@@ -1076,7 +1116,6 @@
                 })
 
                 self.Signaling.onIceCandidate(async(origin, iceCandidate) => {
-                    console.log("Got ice candidate from", origin);
                     self.WebRTC.addIceCandidate(origin, iceCandidate);
                 })
             }
@@ -1139,6 +1178,21 @@
 
         my_Username() {
             return this.Signaling.state.user;
+        }
+
+        get_peers() {
+            const self = this;
+            let output = new Object();
+
+            // Convert each entry of peerConnections into [{name: ulid}] format
+            let peers = Array.from(self.WebRTC.peerConnections.keys());
+            let cons = self.WebRTC.peerConnections;
+
+            Array.from(peers).forEach((ulid) => {
+                output[cons.get(ulid).user] = ulid;
+            })
+
+            return JSON.stringify(output);
         }
 
         async authenticateWithCredentials({ EMAIL, PASSWORD }) {
