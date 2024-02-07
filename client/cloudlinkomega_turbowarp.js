@@ -1,5 +1,219 @@
 (function (Scratch) {
 
+    // Define class to provide ECC cryptography
+    class ECC {
+        constructor() {
+            this.publicKeys = new Map();
+        }
+    
+        async generateKeyPair() {
+            const keyPair = await window.crypto.subtle.generateKey(
+                {
+                    name: "ECDH",
+                    namedCurve: "P-256"
+                },
+                true,
+                ["deriveKey", "deriveBits"]
+            );
+            return keyPair;
+        }
+    
+        async exportPublicKey(key) {
+            const exportedKey = await window.crypto.subtle.exportKey("raw", key.publicKey);
+            const exportedKeyArray = new Uint8Array(exportedKey);
+            const exportedPublicKey = this.arrayBufferToBase64(exportedKeyArray);
+            return exportedPublicKey;
+        }
+    
+        async importPublicKey(exportedKey) {
+            const exportedKeyArray = this.base64ToArrayBuffer(exportedKey);
+            const publicKey = await window.crypto.subtle.importKey(
+                "raw",
+                exportedKeyArray,
+                {
+                    name: "ECDH",
+                    namedCurve: "P-256"
+                },
+                true,
+                []
+            );
+            return publicKey;
+        }
+    
+        async deriveSharedKey(publicKey, privateKey) {
+            const sharedKey = await window.crypto.subtle.deriveKey(
+                {
+                    name: "ECDH",
+                    public: publicKey
+                },
+                privateKey,
+                {
+                    name: "AES-GCM",
+                    length: 256
+                },
+                true,
+                ["encrypt", "decrypt"]
+            );
+            return sharedKey;
+        }
+    
+        async encryptMessage(message, sharedKey) {
+            const encodedMessage = new TextEncoder().encode(message);
+            const iv = window.crypto.getRandomValues(new Uint8Array(12));
+            const encryptedMessage = await window.crypto.subtle.encrypt(
+                {
+                    name: "AES-GCM",
+                    iv: iv
+                },
+                sharedKey,
+                encodedMessage
+            );
+            const encryptedMessageArray = new Uint8Array(encryptedMessage);
+            const encryptedMessageBase64 = this.arrayBufferToBase64(encryptedMessageArray);
+            const ivBase64 = this.arrayBufferToBase64(iv);
+            return { encryptedMessage: encryptedMessageBase64, iv: ivBase64 };
+        }
+    
+        async decryptMessage(encryptedMessageBase64, ivBase64, sharedKey) {
+            const encryptedMessageArray = this.base64ToArrayBuffer(encryptedMessageBase64);
+            const iv = this.base64ToArrayBuffer(ivBase64);
+            const decryptedMessage = await window.crypto.subtle.decrypt(
+                {
+                    name: "AES-GCM",
+                    iv: iv
+                },
+                sharedKey,
+                encryptedMessageArray
+            );
+            const decodedMessage = new TextDecoder().decode(decryptedMessage);
+            return decodedMessage;
+        }
+    
+        arrayBufferToBase64(buffer) {
+            let binary = '';
+            let bytes = new Uint8Array(buffer);
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
+        }
+    
+        base64ToArrayBuffer(base64) {
+            let binary_string = window.atob(base64);
+            let len = binary_string.length;
+            let bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binary_string.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+    
+        setPublicKey(remotePeerId, publicKey) {
+            this.publicKeys.set(remotePeerId, publicKey);
+        }
+    
+        getPublicKey(remotePeerId) {
+            return this.publicKeys.get(remotePeerId);
+        }
+    }
+    
+    // Define class to provide RSA cryptography
+    class RSA {
+        constructor() {
+            this.publicKeys = new Map();
+        }
+    
+        async generateKeyPair() {
+            const keyPair = await window.crypto.subtle.generateKey(
+                {
+                    name: "RSA-OAEP",
+                    modulusLength: 2048,
+                    publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+                    hash: { name: "SHA-256" },
+                },
+                true,
+                ["encrypt", "decrypt"]
+            );
+            return keyPair;
+        }
+    
+        async exportPublicKey(key) {
+            const exportedKey = await window.crypto.subtle.exportKey("spki", key.publicKey);
+            const exportedKeyArray = new Uint8Array(exportedKey);
+            const exportedPublicKey = this.arrayBufferToBase64(exportedKeyArray);
+            return exportedPublicKey;
+        }
+    
+        async importPublicKey(exportedKey) {
+            const exportedKeyArray = this.base64ToArrayBuffer(exportedKey);
+            const publicKey = await window.crypto.subtle.importKey(
+                "spki",
+                exportedKeyArray,
+                {
+                    name: "RSA-OAEP",
+                    hash: { name: "SHA-256" },
+                },
+                true,
+                ["encrypt"]
+            );
+            return publicKey;
+        }
+    
+        async encryptMessage(message, publicKey) {
+            const encodedMessage = new TextEncoder().encode(message);
+            const encryptedMessage = await window.crypto.subtle.encrypt(
+                {
+                    name: "RSA-OAEP"
+                },
+                publicKey,
+                encodedMessage
+            );
+            const encryptedMessageArray = new Uint8Array(encryptedMessage);
+            const encryptedMessageBase64 = this.arrayBufferToBase64(encryptedMessageArray);
+            return encryptedMessageBase64;
+        }
+    
+        async decryptMessage(encryptedMessageBase64, privateKey) {
+            const encryptedMessageArray = this.base64ToArrayBuffer(encryptedMessageBase64);
+            const decryptedMessage = await window.crypto.subtle.decrypt(
+                {
+                    name: "RSA-OAEP"
+                },
+                privateKey,
+                encryptedMessageArray
+            );
+            const decodedMessage = new TextDecoder().decode(decryptedMessage);
+            return decodedMessage;
+        }
+    
+        arrayBufferToBase64(buffer) {
+            let binary = '';
+            let bytes = new Uint8Array(buffer);
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
+        }
+    
+        base64ToArrayBuffer(base64) {
+            let binary_string = window.atob(base64);
+            let len = binary_string.length;
+            let bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binary_string.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+    
+        setPublicKey(remotePeerId, publicKey) {
+            this.publicKeys.set(remotePeerId, publicKey);
+        }
+    
+        getPublicKey(remotePeerId) {
+            return this.publicKeys.get(remotePeerId);
+        }
+    }
+    
     // Define class for authentication
     class AuthManager {
         constructor() {
@@ -66,7 +280,6 @@
         }
     }
 
-    // Define class to enable WebRTC connectivity
     class OmegaRTC {
         constructor() {
             this.configuration = {
@@ -77,14 +290,29 @@
             this.peerConnections = new Map();
             this.dataChannels = new Map();
             this.messageHandlers = {
+                onIceCandidate: {},
                 onIceGatheringDone: {},
                 onChannelOpen: null,
                 onChannelMessage: null,
                 onChannelClose: null,
             }
-            this.iceCandidates = [];
+            this.iceCandidates = {};
         }
 
+        getPeers() {
+            let output = new Object();
+
+            // Convert each entry of peerConnections into [{name: ulid}] format
+            let peers = Array.from(this.peerConnections.keys());
+            let cons = this.peerConnections;
+
+            Array.from(peers).forEach((ulid) => {
+                output[cons.get(ulid).user] = ulid;
+            })
+
+            return output;
+        }
+    
         async createOffer(remoteUserId, remoteUserName) {
             const peerConnection = this.createPeerConnection(remoteUserId, remoteUserName);
             const dataChannel = this.createDefaultChannel(peerConnection, remoteUserId, remoteUserName);
@@ -97,7 +325,7 @@
                 return null;
             }
         }
-
+    
         async createAnswer(remoteUserId, remoteUserName, offer) {
             const peerConnection = this.createPeerConnection(remoteUserId, remoteUserName);
             const dataChannel = this.createDefaultChannel(peerConnection, remoteUserId, remoteUserName);
@@ -111,7 +339,7 @@
                 return null;
             }
         }
-
+    
         async handleAnswer(remoteUserId, answer) {
             const peerConnection = this.peerConnections.get(remoteUserId);
             if (peerConnection) {
@@ -124,7 +352,7 @@
                 console.error(`Peer connection not found for ${peerConnection.user} (${remoteUserId})`);
             }
         }
-
+    
         addIceCandidate(remoteUserId, iceCandidate) {
             const peerConnection = this.peerConnections.get(remoteUserId);
             if (peerConnection) {
@@ -138,39 +366,32 @@
                 console.error(`Peer connection not found for ${peerConnection.user} (${remoteUserId})`);
             }
         }
-
+    
         createPeerConnection(remoteUserId, remoteUserName) {
             const peerConnection = new RTCPeerConnection(this.configuration);
-
-            // Add new property to the peer connection
             peerConnection.user = remoteUserName;
-
             peerConnection.onicecandidate = (event) => {
-
-                // Store the ICE candidate for later use
                 if (event.candidate) {
-                    this.iceCandidates.push(event.candidate);
+                    if (!this.iceCandidates[remoteUserId]) {
+                        this.iceCandidates[remoteUserId] = [];
+                    }
+                    this.iceCandidates[remoteUserId].push(event.candidate);
+                    if (this.messageHandlers.onIceCandidate[remoteUserId]) {
+                        this.messageHandlers.onIceCandidate[remoteUserId](event.candidate);
+                    }
                 }
-
-                // Log ICE candidates started gathering
-                if (event.target.iceGatheringState === 'new') {
-                    console.log(`Please wait, gathering ICE candidates for ${remoteUserName} (${remoteUserId}). This may take a moment...`);
-                }
-
-                // When all ICE candidates are gathered, send them to the remote peer
                 if (event.target.iceGatheringState === 'complete') {
                     if (this.messageHandlers.onIceGatheringDone[remoteUserId]) {
-                        console.log(`ICE candidate gathering complete for ${remoteUserName} (${remoteUserId}). Preparing your connection...`);
                         this.messageHandlers.onIceGatheringDone[remoteUserId]();
                     }
                 }
             };
-
+    
             peerConnection.ondatachannel = (event) => {
                 const dataChannel = event.channel;
                 this.handleDataChannel(dataChannel, remoteUserId, remoteUserName);
             };
-
+    
             peerConnection.onconnectionstatechange = () => {
                 switch (peerConnection.connectionState) {
                     case "new":
@@ -187,56 +408,67 @@
                         break;
                     case "closed":
                         console.log(`Peer ${remoteUserName} (${remoteUserId}) disconnected.`);
-                        this.peerConnections.delete(remoteUserId);
+                        this.disconnectPeer(remoteUserId);
                         break;
                     case "failed":
                         console.log(`Peer ${remoteUserName} (${remoteUserId}) connection failed.`);
-                        this.peerConnections.delete(remoteUserId);
+                        this.disconnectPeer(remoteUserId);
                         break;
                     default:
                         console.log(`Peer ${remoteUserName} (${remoteUserId}) connection state unknown.`);
                         break;
                 }
             };
-
+    
             this.peerConnections.set(remoteUserId, peerConnection);
-
+    
             return peerConnection;
         }
-
+    
         handleDataChannel(dataChannel, remoteUserId, remoteUserName) {
             if (!this.dataChannels.has(remoteUserId)) {
                 const channel = dataChannel;
-                this.dataChannels.set(remoteUserId, channel);
-
+                this.dataChannels.set(remoteUserId, new Map());
+    
                 channel.onmessage = (event) => {
                     console.log(`Received message from ${remoteUserName} (${remoteUserId}) in channel ${channel.label}: ${event.data}`);
                     if (this.messageHandlers.onChannelMessage) {
-                        this.messageHandlers.onChannelMessage(event.data, remoteUserId);
+                        this.messageHandlers.onChannelMessage(event.data, remoteUserId, channel.label);
                     }
                 };
-
+    
                 channel.onopen = () => {
                     console.log(`Data channel ${channel.label} with ${remoteUserName} (${remoteUserId}) opened`);
                     if (this.messageHandlers.onChannelOpen) {
-                        this.messageHandlers.onChannelOpen(remoteUserId);
+                        this.messageHandlers.onChannelOpen(remoteUserId, channel.label);
                     }
                 };
-
+    
                 channel.onclose = () => {
                     console.log(`Data channel ${channel.label} with ${remoteUserName} (${remoteUserId}) closed`);
                     if (this.messageHandlers.onChannelClose) {
-                        this.messageHandlers.onChannelClose(remoteUserId);
+                        this.messageHandlers.onChannelClose(remoteUserId, channel.label);
                     }
-
-                    // If the default channel is closed, close the peer connection and remove it
+    
                     if (channel.label == "default") {
-                        console.log(`Manually closing peer connection ${remoteUserName} (${remoteUserId})`);
-                        this.peerConnections.get(remoteUserId).close();
-                        this.peerConnections.delete(remoteUserId);
+                        this.disconnectPeer(remoteUserId);
+                    } else {
+                        this.dataChannels.get(remoteUserId).delete(channel.label);
                     }
                 };
+    
+                this.dataChannels.get(remoteUserId).set(channel.label, channel);
             }
+        }
+    
+        createChannel(remoteUserId, label, id, ordered) {
+            const peerConnection = this.peerConnections.get(remoteUserId);
+            const dataChannel = peerConnection.createDataChannel(
+                label,
+                { negotiated: true, id: id, ordered: ordered, protocol: 'clomega' }
+            );
+            this.handleDataChannel(dataChannel, remoteUserId, peerConnection.user);
+            return dataChannel;
         }
 
         createDefaultChannel(peerConnection, remoteUserId, remoteUserName) {
@@ -247,29 +479,53 @@
             this.handleDataChannel(dataChannel, remoteUserId, remoteUserName);
             return dataChannel;
         }
-
-        createNewDataChannel(remoteUserId, label, id, ordered) {
-            const peerConnection = this.peerConnections.get(remoteUserId);
-            const dataChannel = peerConnection.createDataChannel(
-                label,
-                { negotiated: true, id: id, ordered: ordered, protocol: 'clomega' }
-            );
-            this.handleDataChannel(dataChannel, remoteUserId, peerConnection.user);
-            return dataChannel;
+    
+        sendData(remoteUserId, label, data) {
+            const channel = this.dataChannels.get(remoteUserId)?.get(label);
+            if (channel) {
+                channel.send(data);
+            } else {
+                console.error(`Data channel ${label} not found for ${remoteUserId}`);
+            }
         }
 
+        disconnectPeer(remoteUserId) {
+            const peerConnection = this.peerConnections.get(remoteUserId);
+            if (peerConnection) {
+                peerConnection.close();
+                this.peerConnections.delete(remoteUserId);
+                delete this.iceCandidates[remoteUserId];
+    
+                if (this.dataChannels.has(remoteUserId)) {
+                    const channels = this.dataChannels.get(remoteUserId);
+                    for (const channel of channels.values()) {
+                        channel.close();
+                    }
+                    this.dataChannels.delete(remoteUserId);
+                }
+    
+                console.log(`Disconnected peer ${remoteUserId} gracefully.`);
+            } else {
+                console.warn(`Attempted to close connection wih peer ${remoteUserId}, but no connection was found for ${remoteUserId}`);
+            }
+        }
+    
+        onIceCandidate(remoteUserId, callback) {
+            this.messageHandlers.onIceCandidate[remoteUserId] = callback;
+        }
+    
         onIceGatheringDone(remoteUserId, callback) {
             this.messageHandlers.onIceGatheringDone[remoteUserId] = callback;
         }
-
+    
         onChannelOpen(callback) {
             this.messageHandlers.onChannelOpen = callback;
         }
-
+    
         onChannelClose(callback) {
             this.messageHandlers.onChannelClose = callback;
         }
-
+    
         onChannelMessage(callback) {
             this.messageHandlers.onChannelMessage = callback;
         }
@@ -289,7 +545,7 @@
                 onPeerModeConfig: null,
                 onNewHost: null,
                 onNewPeer: null,
-                onIceCandidate: {},
+                onIceCandidateReceived: {},
                 onOffer: null,
                 onAnswer: {},
                 listeners: {},
@@ -449,7 +705,7 @@
                         console.warn("Protocol bug: Received ICE message while operating in configuring mode.");
                         return;
                     }
-                    this.messageHandlers.onIceCandidate(origin, payload);
+                    this.messageHandlers.onIceCandidateReceived(origin, payload);
                     break;
             }
 
@@ -534,8 +790,8 @@
             this.messageHandlers.onPeerModeConfig = callback;
         }
 
-        onIceCandidate(callback) {
-            this.messageHandlers.onIceCandidate = callback;
+        onIceCandidateReceived(callback) {
+            this.messageHandlers.onIceCandidateReceived = callback;
         }
 
         onListener(name, callback) {
@@ -600,7 +856,7 @@
                         arguments: {
                             UGI: {
                                 type: 'string',
-                                defaultValue: '01HNPHRWS0N0AYMM5K4HN31V4W',
+                                defaultValue: '01HNPHRWS0N0AYMM5K4HN31V4W', // Test game ID.
                             },
                         }
                     },
@@ -1058,83 +1314,113 @@
         initialize({ UGI }) {
             const self = this;
             if (!self.Signaling.socket) {
-                self.Signaling.Connect(UGI);
+                return new Promise((resolve, reject) => {
+                    self.Signaling.Connect(UGI);
 
-                // Bind event handlers
-                self.Signaling.onConnect(() => {
-                    console.log('Connected to signaling server.');
-                })
-
-                self.Signaling.onClose(() => {
-                    console.log('Disconnected from signaling server.');
-
-                    // To be compliant with the protocol, we must close all peer connections.
-                    Array.from(self.WebRTC.peerConnections.keys()).forEach((peer) => {
-                        self.WebRTC.peerConnections.get(peer).close();
+                    // Bind event handlers
+                    self.Signaling.onConnect(() => {
+                        console.log('Connected to signaling server.');
+                        resolve();
                     })
-                })
 
-                self.Signaling.onNewPeer(async (peer, user) => {
-                    console.log(`New peer: ${user} (${peer})`);
+                    self.Signaling.onClose(() => {
+                        console.log('Disconnected from signaling server.');
 
-                    // Create offer
-                    const { offer, dataChannel } = await self.WebRTC.createOffer(peer, user);
+                        // To be compliant with the protocol, we must close all peer connections.
+                        console.log(`There are ${self.WebRTC.peerConnections.size} peer connections to close.`);
+                        Array.from(self.WebRTC.peerConnections.keys()).forEach((peer) => {
+                            self.WebRTC.disconnectPeer(peer);
+                        })
 
-                    // Send created offer
-                    console.log(`Sending offer to ${user} (${peer})`);
-                    self.Signaling.sendOffer(peer, offer, null);
+                        reject();
+                    })
 
-                    // Configure onAnswer event
-                    self.Signaling.onAnswer(peer, async(origin, answer) => {
+                    self.Signaling.onNewPeer(async (peer, user) => {
+                        console.log(`New peer: ${user} (${peer})`);
 
-                        // Handle answer to offer
-                        console.log(`Got answer from ${user} (${origin})`);
-                        await self.WebRTC.handleAnswer(origin, answer);
+                        // Create offer
+                        const { offer, dataChannel } = await self.WebRTC.createOffer(peer, user);
 
-                        // Send ICE candidates to the host
-                        self.WebRTC.onIceGatheringDone(origin, () => {
-                            console.log(`Sending ICE offers to ${user} (${origin})`);
-                            self.WebRTC.iceCandidates.forEach((candidate) => {
+                        // Send created offer
+                        console.log(`Sending offer to ${user} (${peer})`);
+                        self.Signaling.sendOffer(peer, offer, null);
+
+                        // Configure onAnswer event
+                        self.Signaling.onAnswer(peer, async(origin, answer) => {
+
+                            // Handle answer to offer
+                            console.log(`Got answer from ${user} (${origin})`);
+                            await self.WebRTC.handleAnswer(origin, answer);
+
+                            // Begin sending Trickle ICE candidates
+                            self.WebRTC.onIceCandidate(origin, (candidate) => {
+                                console.log(`Sending trickle ICE candidate to ${user} (${origin})`);
                                 self.Signaling.sendIceCandidate(origin, candidate);
+
+                                // Remove the candidate from the queue so we don't accidentally resend it
+                                if (self.WebRTC.iceCandidates[origin].includes(candidate)) {
+                                    self.WebRTC.iceCandidates[origin].splice(self.WebRTC.iceCandidates[origin].indexOf(candidate), 1);
+                                }
+                            })
+
+                            // If we are done gathering ICE candidates, send the remaining ones
+                            self.WebRTC.onIceGatheringDone(origin, () => {
+                                console.log(`Sending remaining tricke ICE candidates to ${user} (${origin})`);
+                                self.WebRTC.iceCandidates[origin].forEach((candidate) => {
+                                    self.Signaling.sendIceCandidate(origin, candidate);
+                                })
                             })
                         })
                     })
-                })
 
-                self.Signaling.onNewHost((peer, lobby, user) => {
-                    console.log(`New host: ${user} (${peer}) in lobby ${lobby}`);
+                    self.Signaling.onNewHost((peer, lobby, user) => {
+                        console.log(`New host: ${user} (${peer}) in lobby ${lobby}`);
 
-                    // Configure onOffer event
-                    self.Signaling.onOffer(async (origin, offer) => {
+                        // Configure onOffer event
+                        self.Signaling.onOffer(async (origin, offer) => {
 
-                        // Make answer from offer
-                        console.log(`Got offer from ${user} (${origin})`);
-                        const { answer, dataChannel } = await self.WebRTC.createAnswer(origin, user, offer);
-                        
-                        // Send answer
-                        console.log(`Sending answer to ${user} (${origin})`);
-                        self.Signaling.sendAnswer(origin, answer, null);
+                            // Make answer from offer
+                            console.log(`Got offer from ${user} (${origin})`);
+                            const { answer, dataChannel } = await self.WebRTC.createAnswer(origin, user, offer);
+                            
+                            // Send answer
+                            console.log(`Sending answer to ${user} (${origin})`);
+                            self.Signaling.sendAnswer(origin, answer, null);
 
-                        // Send ICE candidates to the host
-                        self.WebRTC.onIceGatheringDone(origin, () => {
-                            console.log(`Sending ICE offers to ${user} (${origin})`);
-                            self.WebRTC.iceCandidates.forEach((candidate) => {
+                            // Begin sending Trickle ICE candidates
+                            self.WebRTC.onIceCandidate(origin, (candidate) => {
+                                console.log(`Sending trickle ICE candidate to ${user} (${origin})`);
                                 self.Signaling.sendIceCandidate(origin, candidate);
+
+                                // Remove the candidate from the queue so we don't accidentally resend it
+                                if (self.WebRTC.iceCandidates[origin].includes(candidate)) {
+                                    self.WebRTC.iceCandidates[origin].splice(self.WebRTC.iceCandidates[origin].indexOf(candidate), 1);
+                                }
+                            })
+
+                            // If we are done gathering ICE candidates, send the remaining ones
+                            self.WebRTC.onIceGatheringDone(origin, () => {
+                                console.log(`Sending remaining tricke ICE candidates to ${user} (${origin})`);
+                                self.WebRTC.iceCandidates[origin].forEach((candidate) => {
+                                    self.Signaling.sendIceCandidate(origin, candidate);
+                                })
                             })
                         })
                     })
-                })
 
-                self.Signaling.onIceCandidate(async(origin, iceCandidate) => {
-                    self.WebRTC.addIceCandidate(origin, iceCandidate);
-                })
+                    self.Signaling.onIceCandidateReceived(async(origin, iceCandidate) => {
+                        console.log(`Got ICE candidate from ${origin}`);
+                        self.WebRTC.addIceCandidate(origin, iceCandidate);
+                    })
+                });
             }
         }
 
         init_host_mode({LOBBY, PEERS, PASSWORD, CLAIMCONFIG}) {
             const self = this;
             if (!self.Signaling.socket) {
-                throw new Error('Signaling server not connected');
+                console.warn('Signaling server not connected');
+                return;
             }
             let allow_host_reclaim = false;
             let allow_peers_to_claim_host = false;
@@ -1158,7 +1444,8 @@
         init_peer_mode({LOBBY, PASSWORD}) {
             const self = this;
             if (!self.Signaling.socket) {
-                throw new Error('Signaling server not connected');
+                console.warn('Signaling server not connected');
+                return;
             }
             self.Signaling.peerMode(LOBBY, PASSWORD, null);
         }
@@ -1167,42 +1454,39 @@
             const self = this;
 
             // Get channel.
-            // TODO: allow support for more than one channel. Currently only the default channel.
-            const channel = self.WebRTC.dataChannels.get(PEER);
+            const peer = self.WebRTC.dataChannels.get(PEER);
+
+            if (!peer) {
+                console.warn(`Peer ${PEER} not found`);
+                return;
+            }
+
+            const channel = peer.get(CHANNEL);
 
             if (!channel) {
-                throw new Error(`Peer ${PEER} not found`);
+                console.warn(`Channel ${CHANNEL} not found for peer ${PEER}`);
+                return;
             }
 
-            if (WAIT) {
-                // Set threshold to zero.
-                channel.bufferedAmountThreshold = 0; 
-            }
+            if (WAIT) channel.bufferedAmountThreshold = 0; 
 
+            // TODO: Implement cryptography support for relayed data
             channel.send(JSON.stringify({
-                msgType: "data",
-                msgPayload: DATA,
-                msgOrigin: self.Signaling.state.user,
+                opcode: "gdata",
+                payload: DATA,
+                origin: self.Signaling.state.user,
             }))
 
-            if (WAIT) {
-                // Wait for buffer to finish flushing.
-                return new Promise((resolve) => {
-                    channel.onbufferedamountlow = () => {
-                        resolve();
-                    }
-                })
-            }
+            if (WAIT) return new Promise((resolve) => {
+                channel.onbufferedamountlow = () => {
+                    resolve();
+                }
+            })
         }
 
         disconnect_peer({PEER}) {
             const self = this;
-            const peerConnection = self.WebRTC.peerConnections.get(PEER);
-            if (!peerConnection) {
-                throw new Error(`Peer ${PEER} not found`);
-            }
-            // Close connection.
-            peerConnection.close();
+            self.WebRTC.disconnectPeer(PEER);
         }
 
         leave() {
@@ -1234,23 +1518,14 @@
 
         get_peers() {
             const self = this;
-            let output = new Object();
-
-            // Convert each entry of peerConnections into [{name: ulid}] format
-            let peers = Array.from(self.WebRTC.peerConnections.keys());
-            let cons = self.WebRTC.peerConnections;
-
-            Array.from(peers).forEach((ulid) => {
-                output[cons.get(ulid).user] = ulid;
-            })
-
-            return JSON.stringify(output);
+            return JSON.stringify(self.WebRTC.getPeers());
         }
 
         async authenticateWithCredentials({ EMAIL, PASSWORD }) {
             const self = this;
             if (!self.Signaling.socket) {
-                throw new Error('Signaling server not connmected');
+                console.warn('Signaling server not connected');
+                return;
             };
             await self.AuthManager.Login(EMAIL, PASSWORD);
             if (self.AuthManager.loginSuccess) {
@@ -1261,7 +1536,8 @@
         authenticateWithToken({TOKEN}) {
             const self = this;
             if (!self.Signaling.socket) {
-                throw new Error('Signaling server not connected');
+                console.warn('Signaling server not connected');
+                return;
             };
             self.AuthManager.sessionToken = TOKEN;
             self.Signaling.authenticateWithToken(self.AuthManager.sessionToken, null);
