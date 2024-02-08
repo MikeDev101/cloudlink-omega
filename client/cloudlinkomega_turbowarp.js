@@ -1,13 +1,19 @@
 (function (Scratch) {
 
-    // Define class to provide ECC/ECDH cryptography
-    class ECC {
+    // Define class to provide message encryption (ECDH P-256 w/ AES-GCM, SPKI w/ base64-encoded public keys)
+    class OmegaEncryption {
         constructor() {
-            this.publicKeys = new Map();
+            this.publicKeys = new Map(); // Store public keys from peers
+            this.secrets = new Map(); // Store derived key secrets
+            this.keyPair = null; // ECDH P-256 key pair (public: spki, private: pkcs8)
         }
     
         async generateKeyPair() {
-            const keyPair = await window.crypto.subtle.generateKey(
+            if (this.keyPair) {
+                reject("Key pair already exists");
+                return;
+            }
+            this.keyPair = await window.crypto.subtle.generateKey(
                 {
                     name: "ECDH",
                     namedCurve: "P-256"
@@ -15,20 +21,23 @@
                 true,
                 ["deriveKey", "deriveBits"]
             );
-            return keyPair;
+            return this.keyPair;
         }
     
-        async exportPublicKey(key) {
-            const exportedKey = await window.crypto.subtle.exportKey("raw", key.publicKey);
-            const exportedKeyArray = new Uint8Array(exportedKey);
-            const exportedPublicKey = this.arrayBufferToBase64(exportedKeyArray);
-            return exportedPublicKey;
+        async exportPublicKey() {
+            // Export this.keyPair.publicKey
+            if (!this.keyPair) {
+                reject("Key pair does not exist");
+                return;
+            }
+            let exportedKey = await window.crypto.subtle.exportKey("spki", this.keyPair.publicKey);
+            return this.arrayBufferToBase64(new Uint8Array(exportedKey));
         }
     
         async importPublicKey(exportedKey) {
             const exportedKeyArray = this.base64ToArrayBuffer(exportedKey);
             const publicKey = await window.crypto.subtle.importKey(
-                "raw",
+                "spki",
                 exportedKeyArray,
                 {
                     name: "ECDH",
@@ -115,102 +124,13 @@
         getPublicKey(remotePeerId) {
             return this.publicKeys.get(remotePeerId);
         }
-    }
-    
-    // Define class to provide RSA cryptography
-    class RSA {
-        constructor() {
-            this.publicKeys = new Map();
+
+        setSharedKey(remotePeerId, sharedKey) {
+            this.secrets.set(remotePeerId, sharedKey);
         }
-    
-        async generateKeyPair() {
-            const keyPair = await window.crypto.subtle.generateKey(
-                {
-                    name: "RSA-OAEP",
-                    modulusLength: 2048,
-                    publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
-                    hash: { name: "SHA-256" },
-                },
-                true,
-                ["encrypt", "decrypt"]
-            );
-            return keyPair;
-        }
-    
-        async exportPublicKey(key) {
-            const exportedKey = await window.crypto.subtle.exportKey("spki", key.publicKey);
-            const exportedKeyArray = new Uint8Array(exportedKey);
-            const exportedPublicKey = this.arrayBufferToBase64(exportedKeyArray);
-            return exportedPublicKey;
-        }
-    
-        async importPublicKey(exportedKey) {
-            const exportedKeyArray = this.base64ToArrayBuffer(exportedKey);
-            const publicKey = await window.crypto.subtle.importKey(
-                "spki",
-                exportedKeyArray,
-                {
-                    name: "RSA-OAEP",
-                    hash: { name: "SHA-256" },
-                },
-                true,
-                ["encrypt"]
-            );
-            return publicKey;
-        }
-    
-        async encryptMessage(message, publicKey) {
-            const encodedMessage = new TextEncoder().encode(message);
-            const encryptedMessage = await window.crypto.subtle.encrypt(
-                {
-                    name: "RSA-OAEP"
-                },
-                publicKey,
-                encodedMessage
-            );
-            const encryptedMessageArray = new Uint8Array(encryptedMessage);
-            const encryptedMessageBase64 = this.arrayBufferToBase64(encryptedMessageArray);
-            return encryptedMessageBase64;
-        }
-    
-        async decryptMessage(encryptedMessageBase64, privateKey) {
-            const encryptedMessageArray = this.base64ToArrayBuffer(encryptedMessageBase64);
-            const decryptedMessage = await window.crypto.subtle.decrypt(
-                {
-                    name: "RSA-OAEP"
-                },
-                privateKey,
-                encryptedMessageArray
-            );
-            const decodedMessage = new TextDecoder().decode(decryptedMessage);
-            return decodedMessage;
-        }
-    
-        arrayBufferToBase64(buffer) {
-            let binary = '';
-            let bytes = new Uint8Array(buffer);
-            for (let i = 0; i < bytes.byteLength; i++) {
-                binary += String.fromCharCode(bytes[i]);
-            }
-            return btoa(binary);
-        }
-    
-        base64ToArrayBuffer(base64) {
-            let binary_string = window.atob(base64);
-            let len = binary_string.length;
-            let bytes = new Uint8Array(len);
-            for (let i = 0; i < len; i++) {
-                bytes[i] = binary_string.charCodeAt(i);
-            }
-            return bytes.buffer;
-        }
-    
-        setPublicKey(remotePeerId, publicKey) {
-            this.publicKeys.set(remotePeerId, publicKey);
-        }
-    
-        getPublicKey(remotePeerId) {
-            return this.publicKeys.get(remotePeerId);
+
+        getSharedKey(remotePeerId) {
+            return this.secrets.get(remotePeerId);
         }
     }
     
@@ -283,11 +203,17 @@
     class OmegaRTC {
         constructor() {
             this.configuration = {
+                // Public STUN/TURN servers.
                 iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun.l.google.com:19302' }, // Unencrypted STUN
+                    { urls: 'stun:freeturn.net:3478' }, // Unencrypted UDP/TCP STUN
+                    { urls: 'stun:freeturn.net:5349' }, // Unencrypted TCP/TLS STUN
+                    { urls: 'turn:freeturn.net:3478', username: "free", credential: "free" }, // Unencrypted UDP/TCP TURN
+                    { urls: 'turns:freeturn.net:5349', username: "free", credential: "free" }, // Encrypted TLS TURN
                 ]
             }
             this.peerConnections = new Map();
+            this.voiceConnections = new Map();
             this.dataChannels = new Map();
             this.messageHandlers = {
                 onIceCandidate: {},
@@ -318,14 +244,70 @@
             if (!this.doesPeerExist(remoteUserId)) return [];
             return Array.from(this.dataChannels.get(remoteUserId).keys());
         }
-    
-        async createOffer(remoteUserId, remoteUserName) {
-            const peerConnection = this.createPeerConnection(remoteUserId, remoteUserName);
+
+        // Voice channel functions - Untested.
+
+        async createVoiceOffer(remoteUserId, remoteUserName) {
+            const voiceConnection = this.createConnection(remoteUserId, remoteUserName, true);
+            this.handleVoiceStream(voiceConnection, remoteUserId, remoteUserName);
+            try {
+                const offer = await voiceConnection.createOffer();
+                await voiceConnection.setLocalDescription(offer);
+                return { offer, dataChannel };
+            } catch (error) {
+                console.error(`Error creating voice offer for ${voiceConnection.user} (${remoteUserId}): ${error}`);
+                return null;
+            }
+        }
+
+        async createVoiceAnswer(remoteUserId, remoteUserName) {
+            const voiceConnection = this.createConnection(remoteUserId, remoteUserName, true);
+            await this.handleVoiceStream(voiceConnection, remoteUserId, remoteUserName);
+            try {
+                await voiceConnection.setRemoteDescription(new RTCSessionDescription(offer));
+                const answer = await voiceConnection.createAnswer();
+                await voiceConnection.setLocalDescription(answer);
+                return answer;
+            } catch (error) {
+                console.error(`Error creating voice answer for ${voiceConnection.user} (${remoteUserId}): ${error}`);
+                return null;
+            }
+        }
+
+        async handleVoiceAnswer(remoteUserId, answer) {
+            const voiceConnection = this.voiceConnections.get(remoteUserId);
+            if (voiceConnection) {
+                try {
+                    await voiceConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                } catch (error) {
+                    console.error(`Error handling voice answer for ${voiceConnection.user} (${remoteUserId}): ${error}`);
+                }
+            } else {
+                console.error(`Peer voice connection not found for ${remoteUserId}`);
+            }
+        }
+
+        addVoiceIceCandidate(remoteUserId, iceCandidate) {
+            const voiceConnection = this.voiceConnections.get(remoteUserId);
+            if (voiceConnection) {
+                try {
+                    const candidate = new RTCIceCandidate(iceCandidate);
+                    voiceConnection.addIceCandidate(candidate);
+                } catch (error) {
+                    console.error(`Error adding voice ice candidate for ${voiceConnection.user} (${remoteUserId}): ${error}`);
+                }
+            } else {
+                console.error(`Peer voice connection not found for ${remoteUserId}`);
+            }
+        }
+        
+        // Data channel functions - Tested, working.
+        
+        async createDataOffer(remoteUserId, remoteUserName) {
+            const peerConnection = this.createConnection(remoteUserId, remoteUserName);
             const dataChannel = this.createDefaultChannel(peerConnection, remoteUserId, remoteUserName);
             try {
-                const offer = await peerConnection.createOffer({
-                    offerToReceiveAudio: true, // TODO: figure out if this works or not.
-                });
+                const offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
                 return { offer, dataChannel };
             } catch (error) {
@@ -334,8 +316,8 @@
             }
         }
     
-        async createAnswer(remoteUserId, remoteUserName, offer) {
-            const peerConnection = this.createPeerConnection(remoteUserId, remoteUserName);
+        async createDataAnswer(remoteUserId, remoteUserName, offer) {
+            const peerConnection = this.createConnection(remoteUserId, remoteUserName, false);
             const dataChannel = this.createDefaultChannel(peerConnection, remoteUserId, remoteUserName);
             try {
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
@@ -348,7 +330,7 @@
             }
         }
     
-        async handleAnswer(remoteUserId, answer) {
+        async handleDataAnswer(remoteUserId, answer) {
             const peerConnection = this.peerConnections.get(remoteUserId);
             if (peerConnection) {
                 try {
@@ -357,11 +339,11 @@
                     console.error(`Error handling answer for ${peerConnection.user} (${remoteUserId}): ${error}`);
                 }
             } else {
-                console.error(`Peer connection not found for ${peerConnection.user} (${remoteUserId})`);
+                console.error(`Peer connection not found for ${remoteUserId}`);
             }
         }
     
-        addIceCandidate(remoteUserId, iceCandidate) {
+        addDataIceCandidate(remoteUserId, iceCandidate) {
             const peerConnection = this.peerConnections.get(remoteUserId);
             if (peerConnection) {
                 try {
@@ -374,18 +356,19 @@
                 console.error(`Peer connection not found for ${peerConnection.user} (${remoteUserId})`);
             }
         }
-    
-        createPeerConnection(remoteUserId, remoteUserName) {
-            const peerConnection = new RTCPeerConnection(this.configuration);
+
+        // Common function for creating peer/voice connections
+        createConnection(remoteUserId, remoteUserName, isAudioOnly) {
+            const conn = new RTCPeerConnection(this.configuration);
 
             // Set username
-            peerConnection.user = remoteUserName;
+            conn.user = remoteUserName;
 
             // Add channel ID counter
-            peerConnection.channelIdCounter = 0;
+            conn.channelIdCounter = 0;
 
             // Handle ICE candidate gathering
-            peerConnection.onicecandidate = (event) => {
+            conn.onicecandidate = (event) => {
                 if (event.candidate) {
                     if (!this.iceCandidates[remoteUserId]) {
                         this.iceCandidates[remoteUserId] = [];
@@ -403,14 +386,16 @@
             };
             
             // handle data channel creation
-            peerConnection.ondatachannel = (event) => {
-                const dataChannel = event.channel;
-                this.handleDataChannel(dataChannel, remoteUserId, remoteUserName);
-            };
+            if (!isAudioOnly) {
+                conn.ondatachannel = (event) => {
+                    const dataChannel = event.channel;
+                    this.handleDataChannel(dataChannel, remoteUserId, remoteUserName);
+                };
+            }
             
             // Handle connection state changes
-            peerConnection.onconnectionstatechange = () => {
-                switch (peerConnection.connectionState) {
+            conn.onconnectionstatechange = () => {
+                switch (conn.connectionState) {
                     case "new":
                         console.log(`Peer ${remoteUserName} (${remoteUserId}) created.`);
                         break;
@@ -425,11 +410,11 @@
                         break;
                     case "closed":
                         console.log(`Peer ${remoteUserName} (${remoteUserId}) disconnected.`);
-                        this.disconnectPeer(remoteUserId);
+                        if (!isAudioOnly) this.disconnectDataPeer(remoteUserId);
                         break;
                     case "failed":
                         console.log(`Peer ${remoteUserName} (${remoteUserId}) connection failed.`);
-                        this.disconnectPeer(remoteUserId);
+                        if (!isAudioOnly) this.disconnectDataPeer(remoteUserId);
                         break;
                     default:
                         console.log(`Peer ${remoteUserName} (${remoteUserId}) connection state unknown.`);
@@ -437,27 +422,26 @@
                 }
             };
 
-            peerConnection.negotiationneeded = (event) => {
-                console.log(`Peer ${remoteUserId} requests negotiation.`);
-            };
+            if (isAudioOnly) {
+                // Handle incoming tracks
+                conn.ontrack = (event) => {
+                    console.log(`Adding peer ${remoteUserId} audio stream...`);
 
-            // Handle incoming tracks
-            peerConnection.ontrack = (event) => {
-                console.log(`Adding peer ${remoteUserId} audio stream...`);
+                    // Auto-play the received audio stream
+                    let audioElement = document.createElement(`audio_${remoteUserId}`);
+                    audioElement.id = `audio_${remoteUserId}`;
+                    audioElement.srcObject = event.streams[0];
+                    audioElement.autoplay = true;
 
-                // Auto-play the received audio stream
-                let audioElement = document.createElement(`audio_${remoteUserId}`);
-                audioElement.id = `audio_${remoteUserId}`;
-                audioElement.srcObject = event.streams[0];
-                audioElement.autoplay = true;
-
-                // Optional: Attach audio element to DOM for remote playback
-                document.body.appendChild(audioElement);
-            };
+                    // Optional: Attach audio element to DOM for remote playback
+                    document.body.appendChild(audioElement);
+                };
+            }
+            
+            if (isAudioOnly) this.voiceConnections.set(remoteUserId, conn);
+            else this.peerConnections.set(remoteUserId, conn);
     
-            this.peerConnections.set(remoteUserId, peerConnection);
-    
-            return peerConnection;
+            return conn;
         }
     
         handleDataChannel(dataChannel, remoteUserId, remoteUserName) {
@@ -492,7 +476,7 @@
                     }
     
                     if (channel.label == "default") {
-                        this.disconnectPeer(remoteUserId);
+                        this.disconnectDataPeer(remoteUserId);
                     } else {
                         this.dataChannels.get(remoteUserId).delete(channel.label);
                     }
@@ -500,6 +484,31 @@
                 
                 // Store reference to channel
                 this.dataChannels.get(remoteUserId).set(channel.label, channel);
+            }
+        }
+
+        handleVoiceStream(voiceConnection, remoteUserId, remoteUserName) {
+            // Create a new audio track
+            console.log(`Preparing to open voice stream channel with ${remoteUserName} (${remoteUserId})...`);
+
+            navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(stream => {
+                stream.getTracks().forEach(track => {
+                    console.log("Adding track:", track, `to peer ${remoteUserName} (${remoteUserId})...`);
+                    voiceConnection.addTrack(track, stream);
+                });
+                console.log(`Opened voice stream channel with ${remoteUserName} (${remoteUserId}).`);
+            })
+            .catch(err => {
+                console.error(`Error adding audio stream for peer ${remoteUserName} (${remoteUserId}):`, err);
+            });
+        }
+
+        closeVoiceStream(remoteUserId) {
+            let audioElement = document.getElementById(`audio_${remoteUserId}`);
+            if (audioElement) {
+                console.log(`Removing peer ${remoteUserId} audio stream...`);
+                document.body.removeChild(audioElement);
             }
         }
     
@@ -541,7 +550,7 @@
             }
         }
 
-        disconnectPeer(remoteUserId) {
+        disconnectDataPeer(remoteUserId) {
             const peerConnection = this.peerConnections.get(remoteUserId);
             if (peerConnection) {
                 peerConnection.close();
@@ -558,9 +567,6 @@
                     }
                     this.dataChannels.delete(remoteUserId);
                 }
-
-                // Check if audio stream exists, and remove it from body if it does.
-                this.closeIncomingVoiceStream(remoteUserId);
     
                 console.log(`Disconnected peer ${remoteUserId} gracefully.`);
             }
@@ -584,29 +590,6 @@
     
         onChannelMessage(remoteUserId, callback) {
             this.messageHandlers.onChannelMessage[remoteUserId] = callback;
-        }
-
-        async openVoiceStream(remoteUserId) {
-            const peerConnection = this.peerConnections.get(remoteUserId);
-        
-            // Create a new audio track
-            console.log(`Preparing to open voice stream channel with ${remoteUserId}...`);
-
-            let localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            for (const track of localStream.getTracks()) {
-                console.log("Adding track:", track, `to peer ${remoteUserId}...`);
-                peerConnection.addTrack(track, localStream);
-            }
-        
-            console.log(`Voice stream channel opened successfully with ${remoteUserId}`);
-        }
-
-        closeIncomingVoiceStream(remoteUserId) {
-            let audioElement = document.getElementById(`audio_${remoteUserId}`);
-            if (audioElement) {
-                console.log(`Removing peer ${remoteUserId} audio stream...`);
-                document.body.removeChild(audioElement);
-            }
         }
     }
 
@@ -746,6 +729,10 @@
                     break;
                 case "LOBBY_LOCKED":
                     console.warn("Lobby is not accepting connections at this time.");
+                    if (this.messageHandlers.onModeConfigFailure) this.messageHandlers.onModeConfigFailure(opcode);
+                    break;
+                case "PASSWORD_FAIL":
+                    console.warn("Lobby is password protected and incorrect password was provided.");
                     if (this.messageHandlers.onModeConfigFailure) this.messageHandlers.onModeConfigFailure(opcode);
                     break;
                 case "LOBBY_CLOSE":
@@ -1442,7 +1429,37 @@
         }
 
         clOmegaProtocolMessageHandler(origin, channel, message) {
+            console.log(`Received message from ${origin} in channel ${channel}: ${message}`);
+            const {opcode, payload} = message;
 
+            switch (opcode) {
+                case "PKEY":
+                    break;
+                case "G_MSG":
+                    break;
+                case "G_VAR":
+                    break;
+                case "G_LIST":
+                    break;
+                case "P_MSG":
+                    break;
+                case "P_VAR":
+                    break;
+                case "P_LIST":
+                    break;
+                case "RING":
+                    break;
+                case "PICKUP":
+                    break;
+                case "HANGUP":
+                    break;
+                case "V_OFFER":
+                    break;
+                case "V_ANSWER":
+                    break;
+                case "V_ICE":
+                    break;
+            }
         }
 
         initialize({ UGI }) {
@@ -1465,7 +1482,7 @@
                         // To be compliant with the protocol, we must close all peer connections.
                         console.log(`There are ${self.WebRTC.peerConnections.size} peer connections to close.`);
                         Array.from(self.WebRTC.peerConnections.keys()).forEach((peer) => {
-                            self.WebRTC.disconnectPeer(peer);
+                            self.WebRTC.disconnectDataPeer(peer);
                         })
 
                         // If this was a failed connection attempt, return the promise with a rejection.
@@ -1477,11 +1494,11 @@
 
                         // Create handler for PEER_GONE
                         self.Signaling.onPeerGone(peer, () => {
-                            self.WebRTC.disconnectPeer(peer);
+                            self.WebRTC.disconnectDataPeer(peer);
                         })
 
                         // Create offer
-                        const { offer, dataChannel } = await self.WebRTC.createOffer(peer, user);
+                        const { offer, dataChannel } = await self.WebRTC.createDataOffer(peer, user);
 
                         // Send created offer
                         console.log(`Sending offer to ${user} (${peer})`);
@@ -1492,7 +1509,7 @@
 
                             // Handle answer to offer
                             console.log(`Got answer from ${user} (${origin})`);
-                            await self.WebRTC.handleAnswer(origin, answer);
+                            await self.WebRTC.handleDataAnswer(origin, answer);
 
                             // Begin sending Trickle ICE candidates
                             self.WebRTC.onIceCandidate(origin, (candidate) => {
@@ -1525,7 +1542,7 @@
 
                         // Create handler for HOST_GONE
                         self.Signaling.onHostGone(peer, () => {
-                            self.WebRTC.disconnectPeer(peer);
+                            self.WebRTC.disconnectDataPeer(peer);
                         })
 
                         // Configure onOffer event
@@ -1533,7 +1550,7 @@
 
                             // Make answer from offer
                             console.log(`Got offer from ${user} (${origin})`);
-                            const { answer, dataChannel } = await self.WebRTC.createAnswer(origin, user, offer);
+                            const { answer, dataChannel } = await self.WebRTC.createDataAnswer(origin, user, offer);
                             
                             // Send answer
                             console.log(`Sending answer to ${user} (${origin})`);
@@ -1567,7 +1584,7 @@
 
                     self.Signaling.onIceCandidateReceived(async(origin, iceCandidate) => {
                         console.log(`Got ICE candidate from ${origin}`);
-                        self.WebRTC.addIceCandidate(origin, iceCandidate);
+                        self.WebRTC.addDataIceCandidate(origin, iceCandidate);
                     })
                 });
             }
@@ -1666,7 +1683,7 @@
 
         disconnect_peer({PEER}) {
             const self = this;
-            self.WebRTC.disconnectPeer(PEER);
+            self.WebRTC.disconnectDataPeer(PEER);
         }
 
         leave() {
@@ -1774,7 +1791,7 @@
                 return;
             }
 
-            self.WebRTC.openVoiceStream(PEER);
+            // self.WebRTC.openVoiceStream(PEER);
         }
 
         close_vchan({PEER}) {
