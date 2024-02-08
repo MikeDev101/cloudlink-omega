@@ -1,6 +1,6 @@
 (function (Scratch) {
 
-    // Define class to provide ECC cryptography
+    // Define class to provide ECC/ECDH cryptography
     class ECC {
         constructor() {
             this.publicKeys = new Map();
@@ -243,7 +243,7 @@
                     this.sessionToken = data;
 
                 } else {
-                    console.warn("Account logged in failed:", data);
+                    console.warn("Account login failed:", data);
                 }
                 this.loginSuccess = response.ok;
             } catch (error) {
@@ -293,7 +293,7 @@
                 onIceCandidate: {},
                 onIceGatheringDone: {},
                 onChannelOpen: null,
-                onChannelMessage: null,
+                onChannelMessage: {},
                 onChannelClose: null,
             }
             this.iceCandidates = {};
@@ -306,18 +306,26 @@
             let peers = Array.from(this.peerConnections.keys());
             let cons = this.peerConnections;
 
+            // Only include peer connections that are fully established.
             Array.from(peers).forEach((ulid) => {
-                output[cons.get(ulid).user] = ulid;
+                if (cons.get(ulid).connectionState == "connected") output[cons.get(ulid).user] = ulid;
             })
 
             return output;
+        }
+
+        getPeerChannels(remoteUserId) {
+            if (!this.doesPeerExist(remoteUserId)) return [];
+            return Array.from(this.dataChannels.get(remoteUserId).keys());
         }
     
         async createOffer(remoteUserId, remoteUserName) {
             const peerConnection = this.createPeerConnection(remoteUserId, remoteUserName);
             const dataChannel = this.createDefaultChannel(peerConnection, remoteUserId, remoteUserName);
             try {
-                const offer = await peerConnection.createOffer();
+                const offer = await peerConnection.createOffer({
+                    offerToReceiveAudio: true, // TODO: figure out if this works or not.
+                });
                 await peerConnection.setLocalDescription(offer);
                 return { offer, dataChannel };
             } catch (error) {
@@ -369,7 +377,14 @@
     
         createPeerConnection(remoteUserId, remoteUserName) {
             const peerConnection = new RTCPeerConnection(this.configuration);
+
+            // Set username
             peerConnection.user = remoteUserName;
+
+            // Add channel ID counter
+            peerConnection.channelIdCounter = 0;
+
+            // Handle ICE candidate gathering
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
                     if (!this.iceCandidates[remoteUserId]) {
@@ -386,12 +401,14 @@
                     }
                 }
             };
-    
+            
+            // handle data channel creation
             peerConnection.ondatachannel = (event) => {
                 const dataChannel = event.channel;
                 this.handleDataChannel(dataChannel, remoteUserId, remoteUserName);
             };
-    
+            
+            // Handle connection state changes
             peerConnection.onconnectionstatechange = () => {
                 switch (peerConnection.connectionState) {
                     case "new":
@@ -419,6 +436,24 @@
                         break;
                 }
             };
+
+            peerConnection.negotiationneeded = (event) => {
+                console.log(`Peer ${remoteUserId} requests negotiation.`);
+            };
+
+            // Handle incoming tracks
+            peerConnection.ontrack = (event) => {
+                console.log(`Adding peer ${remoteUserId} audio stream...`);
+
+                // Auto-play the received audio stream
+                let audioElement = document.createElement(`audio_${remoteUserId}`);
+                audioElement.id = `audio_${remoteUserId}`;
+                audioElement.srcObject = event.streams[0];
+                audioElement.autoplay = true;
+
+                // Optional: Attach audio element to DOM for remote playback
+                document.body.appendChild(audioElement);
+            };
     
             this.peerConnections.set(remoteUserId, peerConnection);
     
@@ -428,12 +463,18 @@
         handleDataChannel(dataChannel, remoteUserId, remoteUserName) {
             if (!this.dataChannels.has(remoteUserId)) {
                 const channel = dataChannel;
+
+                // Create custom channel properties
+                channel.newestData = new String;
+
+                // Create reference to channel
                 this.dataChannels.set(remoteUserId, new Map());
     
                 channel.onmessage = (event) => {
                     console.log(`Received message from ${remoteUserName} (${remoteUserId}) in channel ${channel.label}: ${event.data}`);
-                    if (this.messageHandlers.onChannelMessage) {
-                        this.messageHandlers.onChannelMessage(event.data, remoteUserId, channel.label);
+                    channel.newestData = event.data;
+                    if (this.messageHandlers.onChannelMessage[remoteUserId]) {
+                        this.messageHandlers.onChannelMessage[remoteUserId](event.data, channel.label);
                     }
                 };
     
@@ -456,12 +497,13 @@
                         this.dataChannels.get(remoteUserId).delete(channel.label);
                     }
                 };
-    
+                
+                // Store reference to channel
                 this.dataChannels.get(remoteUserId).set(channel.label, channel);
             }
         }
     
-        createChannel(remoteUserId, label, id, ordered) {
+        createChannel(remoteUserId, label, ordered, id) {
             const peerConnection = this.peerConnections.get(remoteUserId);
             const dataChannel = peerConnection.createDataChannel(
                 label,
@@ -469,6 +511,16 @@
             );
             this.handleDataChannel(dataChannel, remoteUserId, peerConnection.user);
             return dataChannel;
+        }
+
+        doesPeerExist(remoteUserId) {
+            if (!this.peerConnections.get(remoteUserId)) return false;
+            return (this.peerConnections.get(remoteUserId).connectionState == "connected");
+        }
+
+        doesPeerChannelExist(remoteUserId, channel) {
+            if (!this.doesPeerExist(remoteUserId)) return false;
+            return this.dataChannels.get(remoteUserId).has(channel);
         }
 
         createDefaultChannel(peerConnection, remoteUserId, remoteUserName) {
@@ -493,9 +545,12 @@
             const peerConnection = this.peerConnections.get(remoteUserId);
             if (peerConnection) {
                 peerConnection.close();
+
+                // Delete the peerConnection and all ICE candidates gathered
                 this.peerConnections.delete(remoteUserId);
                 delete this.iceCandidates[remoteUserId];
-    
+                
+                // Clear all data channels
                 if (this.dataChannels.has(remoteUserId)) {
                     const channels = this.dataChannels.get(remoteUserId);
                     for (const channel of channels.values()) {
@@ -503,10 +558,11 @@
                     }
                     this.dataChannels.delete(remoteUserId);
                 }
+
+                // Check if audio stream exists, and remove it from body if it does.
+                this.closeIncomingVoiceStream(remoteUserId);
     
                 console.log(`Disconnected peer ${remoteUserId} gracefully.`);
-            } else {
-                console.warn(`Attempted to close connection wih peer ${remoteUserId}, but no connection was found for ${remoteUserId}`);
             }
         }
     
@@ -526,25 +582,52 @@
             this.messageHandlers.onChannelClose = callback;
         }
     
-        onChannelMessage(callback) {
-            this.messageHandlers.onChannelMessage = callback;
+        onChannelMessage(remoteUserId, callback) {
+            this.messageHandlers.onChannelMessage[remoteUserId] = callback;
+        }
+
+        async openVoiceStream(remoteUserId) {
+            const peerConnection = this.peerConnections.get(remoteUserId);
+        
+            // Create a new audio track
+            console.log(`Preparing to open voice stream channel with ${remoteUserId}...`);
+
+            let localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            for (const track of localStream.getTracks()) {
+                console.log("Adding track:", track, `to peer ${remoteUserId}...`);
+                peerConnection.addTrack(track, localStream);
+            }
+        
+            console.log(`Voice stream channel opened successfully with ${remoteUserId}`);
+        }
+
+        closeIncomingVoiceStream(remoteUserId) {
+            let audioElement = document.getElementById(`audio_${remoteUserId}`);
+            if (audioElement) {
+                console.log(`Removing peer ${remoteUserId} audio stream...`);
+                document.body.removeChild(audioElement);
+            }
         }
     }
 
     // Define class to provide signaling for WebRTC and for WebSocket relay (too lazy to make a TURN server)
     class OmegaSignaling {
         constructor() {
+            this.keepalive = null;
             this.messageHandlers = {
                 onInitSuccess: null,
                 onConnect: null,
-                onClose: null,
+                onClose: {},
                 offer: null,
                 answer: null,
                 keepalive: null,
                 onHostModeConfig: null,
                 onPeerModeConfig: null,
+                onModeConfigFailure: null,
                 onNewHost: null,
                 onNewPeer: null,
+                onPeerGone: {},
+                onHostGone: {},
                 onIceCandidateReceived: {},
                 onOffer: null,
                 onAnswer: {},
@@ -565,9 +648,12 @@
             this.socket = new WebSocket(this.url);
 
             this.socket.onopen = () => {
-                if (this.messageHandlers.onConnect) {
-                    this.messageHandlers.onConnect();
-                }
+
+                // Start keepalive. Only upon successful reply should the keepalive keep running.
+                this.sendMessage({ opcode: 'KEEPALIVE' });
+
+                // Start external scripts.
+                if (this.messageHandlers.onConnect) this.messageHandlers.onConnect();
             };
 
             this.socket.onclose = (event) => {
@@ -580,9 +666,13 @@
                 this.state.mode = 0;
                 this.socket = null;
 
-                if (this.messageHandlers.onClose) {
-                    this.messageHandlers.onClose(event);
-                }
+                // Stop keepalive.
+                clearTimeout(this.keepalive);
+
+                // Call external scripts.
+                Object.keys(this.messageHandlers.onClose).forEach(tag => {
+                    this.messageHandlers.onClose[tag](event);
+                })
             };
 
             this.socket.onerror = (error) => {
@@ -608,16 +698,16 @@
                     this.state.id = payload.id;
                     this.state.game = payload.game;
                     this.state.developer = payload.developer;
-                    if (this.messageHandlers.onInitSuccess) {
-                        this.messageHandlers.onInitSuccess();
-                    }
+                    if (this.messageHandlers.onInitSuccess) this.messageHandlers.onInitSuccess();
                     break;
                 case "ACK_HOST":
                     console.log("Acknowledgement received: Operating in host mode.");
+                    if (this.messageHandlers.onHostModeConfig) this.messageHandlers.onHostModeConfig();
                     this.state.mode = 1;
                     break;
                 case "ACK_PEER":
                     console.log("Acknowledgement received: Operating in peer mode.");
+                    if (this.messageHandlers.onPeerModeConfig) this.messageHandlers.onPeerModeConfig();
                     this.state.mode = 2;
                     break;
                 case "VIOLATION":
@@ -632,33 +722,45 @@
                 case "RELAY_OK":
                     break;
                 case "NOT_HOST":
-                    console.warn("Protocol warning: Attempted to send offer while operating in peer mode.");
+                    console.warn("Protocol warning: Attempted to send offer while operating in peer mode (or flexible host mode is turned off)");
                     break;
                 case "NOT_PEER":
-                    console.warn("Protocol warning: Attempted to send answer while operating in host mode.");
+                    console.warn("Protocol warning: Attempted to send answer while operating in host mode. (or flexible host mode is turned off)");
                     break;
                 case "KEEPALIVE":
+                    this.keepalive = setTimeout(() => {
+                        this.sendMessage({ opcode: 'KEEPALIVE' });
+                    }, 5000); // 5 seconds delay
                     break;
                 case "LOBBY_FULL":
                     console.warn("Lobby is full.");
+                    if (this.messageHandlers.onModeConfigFailure) this.messageHandlers.onModeConfigFailure(opcode);
                     break;
                 case "LOBBY_EXISTS":
                     console.warn("Lobby already exists.");
+                    if (this.messageHandlers.onModeConfigFailure) this.messageHandlers.onModeConfigFailure(opcode);
                     break;
                 case "LOBBY_NOTFOUND":
                     console.warn("Lobby does not exist.");
+                    if (this.messageHandlers.onModeConfigFailure) this.messageHandlers.onModeConfigFailure(opcode);
                     break;
                 case "LOBBY_LOCKED":
-                    console.warn("Lobby does not exist.");
+                    console.warn("Lobby is not accepting connections at this time.");
+                    if (this.messageHandlers.onModeConfigFailure) this.messageHandlers.onModeConfigFailure(opcode);
                     break;
                 case "LOBBY_CLOSE":
-                    console.log("Lobby closed.");
+                    console.log("Lobby closed. Disconnecting...");
+                    this.Disconnect();
                     break;
                 case "HOST_GONE":
                     console.log("The host has left.");
+                    // To be compliant with the protocol, we must disconnect the host (or delete the object for it)
+                    if (this.messageHandlers.onHostGone[payload]) this.messageHandlers.onHostGone[payload]();
                     break;
                 case "PEER_GONE":
                     console.log(`Peer ${payload} has left.`);
+                    // To be compliant with the protocol, we must disconnect the peer (or delete the object for it)
+                    if (this.messageHandlers.onPeerGone[payload]) this.messageHandlers.onPeerGone[payload]();
                     break;
                 case "SESSION_EXISTS":
                     console.warn("Protocol warning: Session already exists.");
@@ -677,28 +779,28 @@
                         console.warn("Protocol bug: Received NEW_PEER message while operating in peer/configuring mode.");
                         return;
                     }
-                    this.messageHandlers.onNewPeer(payload.id, payload.user);
+                    if (this.messageHandlers.onNewPeer) this.messageHandlers.onNewPeer(payload.id, payload.user);
                     break;
                 case "NEW_HOST":
                     if (this.state.mode != 0) { // require configuring mode
                         console.warn("Protocol bug: Received NEW_HOST message while operating in host/peer mode.");
                         return;
                     }
-                    this.messageHandlers.onNewHost(payload.id, payload.lobby_id, payload.user);
+                    if (this.messageHandlers.onNewHost) this.messageHandlers.onNewHost(payload.id, payload.lobby_id, payload.user);
                     break;
                 case "MAKE_OFFER":
                     if (this.state.mode != 2) { // require peer mode
                         console.warn("Protocol bug: Received MAKE_OFFER message while operating in host/configuring mode.");
                         return;
                     }
-                    this.messageHandlers.onOffer(origin, payload);
+                    if (this.messageHandlers.onOffer) this.messageHandlers.onOffer(origin, payload);
                     break;
                 case "MAKE_ANSWER":
                     if (this.state.mode != 1) { // require host mode
                         console.warn("Protocol bug: Received MAKE_ANSWER message while operating in peer/configuring mode.");
                         return;
                     }
-                    this.messageHandlers.onAnswer[origin](origin, payload);
+                    if (this.messageHandlers.onAnswer[origin]) this.messageHandlers.onAnswer[origin](origin, payload);
                     break;
                 case "ICE":
                     if (this.state.mode == 0) { // require host/peer mode
@@ -710,13 +812,9 @@
             }
 
             // Call listeners   
-            if (this.messageHandlers[listener]) {
-                if (this.messageHandlers[listener]) {
-                    this.messageHandlers[listener](message);
-                }
-            }
+            if (this.messageHandlers[listener]) this.messageHandlers[listener](message);
         }
-0
+
         hostMode(lobby_id, allow_host_reclaim, allow_peers_to_claim_host, max_peers, password, listener) {
             this.sendMessage({
                 opcode: 'CONFIG_HOST',
@@ -769,11 +867,19 @@
                 console.error('WebSocket connection not open. Cannot send message:', message);
             }
         }
-
+        
         onAnswer(remoteUserId, callback) {
             this.messageHandlers.onAnswer[remoteUserId] = callback;
         }
 
+        onPeerGone(remoteUserId, callback) {
+            this.messageHandlers.onPeerGone[remoteUserId] = callback;
+        }
+
+        onHostGone(remoteUserId, callback) {
+            this.messageHandlers.onHostGone[remoteUserId] = callback;
+        }
+        
         onNewHost(callback) {
             this.messageHandlers.onNewHost = callback;
         }
@@ -788,6 +894,10 @@
 
         onPeerModeConfig(callback) {
             this.messageHandlers.onPeerModeConfig = callback;
+        }
+
+        onModeConfigFailure(callback) {
+            this.messageHandlers.onModeConfigFailure = callback;
         }
 
         onIceCandidateReceived(callback) {
@@ -810,8 +920,8 @@
             this.messageHandlers.onOffer = callback;
         }
 
-        onClose(callback) {
-            this.messageHandlers.onClose = callback;
+        onClose(tag, callback) {
+            this.messageHandlers.onClose[tag] = callback;
         }
     }
 
@@ -821,12 +931,15 @@
             this.vm = Scratch.vm; // VM
             this.runtime = Scratch.vm.runtime; // Runtime
             this.targets = Scratch.vm.runtime.targets // Access variables
+            this.hasMicPerms = false;
             this.Signaling = new OmegaSignaling();
             this.WebRTC = new OmegaRTC();
             this.AuthManager = new AuthManager();
+            
+            // Define icons
             this.blockIconURI =
                 "data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjEiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHdpZHRoPSIxNzYuMzk4NTQiIGhlaWdodD0iMTIyLjY3MDY5IiB2aWV3Qm94PSIwLDAsMTc2LjM5ODU0LDEyMi42NzA2OSI+PGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTE1MS44MDA3MywtMTE4LjY2NDY1KSI+PGcgZGF0YS1wYXBlci1kYXRhPSJ7JnF1b3Q7aXNQYWludGluZ0xheWVyJnF1b3Q7OnRydWV9IiBzdHJva2U9Im5vbmUiIHN0cm9rZS13aWR0aD0iMSIgc3Ryb2tlLWxpbmVjYXA9ImJ1dHQiIHN0cm9rZS1saW5lam9pbj0ibWl0ZXIiIHN0cm9rZS1taXRlcmxpbWl0PSIxMCIgc3Ryb2tlLWRhc2hhcnJheT0iIiBzdHJva2UtZGFzaG9mZnNldD0iMCIgc3R5bGU9Im1peC1ibGVuZC1tb2RlOiBub3JtYWwiPjxwYXRoIGQ9Ik0yODYuMTIwMzcsMTU3LjE3NzU1YzIzLjI0MDg2LDAgNDIuMDc4OSwxOC44Mzk0NiA0Mi4wNzg5LDQyLjA3ODljMCwyMy4yMzk0NCAtMTguODM4MDMsNDIuMDc4OSAtNDIuMDc4OSw0Mi4wNzg5aC05Mi4yNDA3NGMtMjMuMjQwODYsMCAtNDIuMDc4OSwtMTguODM5NDYgLTQyLjA3ODksLTQyLjA3ODljMCwtMjMuMjM5NDQgMTguODM4MDMsLTQyLjA3ODkgNDIuMDc4OSwtNDIuMDc4OWg0LjE4ODg3YzEuODExNTMsLTIxLjU3MDU1IDE5Ljg5MzU3LC0zOC41MTI4OSA0MS45MzE1LC0zOC41MTI4OWMyMi4wMzc5MywwIDQwLjExOTk3LDE2Ljk0MjM0IDQxLjkzMTUsMzguNTEyODl6IiBmaWxsPSIjZmZmZmZmIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiLz48cGF0aCBkPSJNMjY5LjA3ODMzLDIxNy42MzQ5NGMwLDIuMzkzMzMgLTEuOTQwMDYsNC4zMzMzNyAtNC4zMzMzNyw0LjMzMzM3aC0xNS4zOTYwNGMtMi4zOTMzMywwIC00LjMzMzM3LC0xLjk0MDA1IC00LjMzMzM3LC00LjMzMzM3di05LjM1NDQ1YzAsLTEuNjc1MDYgMC45NjU0NywtMy4xOTk5OCAyLjQ3OTMzLC0zLjkxNjcyYzUuODkwNTcsLTIuNzg4MDkgOS42OTY3OSwtOC43OTc4MyA5LjY5Njc5LC0xNS4zMTAyNGMwLC05LjMzNDMgLTcuNTk0MjMsLTE2LjkyODUzIC0xNi45Mjg3NSwtMTYuOTI4NTNjLTkuMzM0NTIsMCAtMTYuOTI4NTMsNy41OTQyMyAtMTYuOTI4NTMsMTYuOTI4NTNjMCw2LjUxMjYyIDMuODA2MjIsMTIuNTIyMTQgOS42OTY3OSwxNS4zMTAyNGMxLjUxNDA4LDAuNzE2NTIgMi40Nzk1NiwyLjI0MTQ0IDIuNDc5NTYsMy45MTY3MnY5LjM1NDQ1YzAsMi4zOTMzMyAtMS45NDAwNiw0LjMzMzM3IC00LjMzMzM3LDQuMzMzMzdoLTE1LjM5NjQ3Yy0yLjM5MzMzLDAgLTQuMzMzMzcsLTEuOTQwMDUgLTQuMzMzMzcsLTQuMzMzMzdjMCwtMi4zOTMzMyAxLjk0MDA2LC00LjMzMzM3IDQuMzMzMzcsLTQuMzMzMzdoMTEuMDYzMXYtMi40NDk0NGMtMy4yNDMxLC0xLjk5ODEyIC02LjAwOTA5LC00LjY5OTc2IC04LjA5MzY2LC03LjkyNjgyYy0yLjY3MDg3LC00LjEzNDQ3IC00LjA4MjY4LC04LjkzMTA4IC00LjA4MjY4LC0xMy44NzE3N2MwLC0xNC4xMTMzNiAxMS40ODE5MiwtMjUuNTk1MjggMjUuNTk1MjcsLTI1LjU5NTI4YzE0LjExMzM2LDAgMjUuNTk1NSwxMS40ODE5MiAyNS41OTU1LDI1LjU5NTA2YzAsNC45NDA3IC0xLjQxMTgxLDkuNzM3NTIgLTQuMDgyNDcsMTMuODcxNzdjLTIuMDg0NTcsMy4yMjcwNiAtNC44NTAzNSw1LjkyODkyIC04LjA5MzY2LDcuOTI3MDR2Mi40NDk0NGgxMS4wNjI2N2MyLjM5MzMzLDAgNC4zMzMzNywxLjk0MDA2IDQuMzMzMzcsNC4zMzMzN3oiIGZpbGw9IiNmZjRkNGMiIGZpbGwtcnVsZT0ibm9uemVybyIvPjwvZz48L2c+PC9zdmc+PCEtLXJvdGF0aW9uQ2VudGVyOjg4LjE5OTI2OTk5OTk5OTk4OjYxLjMzNTM0NTAwMDAwMDAwNC0tPg==";
-
+            
             this.menuIconURI =
                 "data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjEiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHdpZHRoPSIyMjUuMzU0OCIgaGVpZ2h0PSIyMjUuMzU0OCIgdmlld0JveD0iMCwwLDIyNS4zNTQ4LDIyNS4zNTQ4Ij48ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgtMTI3LjMyMjYsLTY3LjMyMjYpIj48ZyBkYXRhLXBhcGVyLWRhdGE9InsmcXVvdDtpc1BhaW50aW5nTGF5ZXImcXVvdDs6dHJ1ZX0iIHN0cm9rZT0ibm9uZSIgc3Ryb2tlLWxpbmVjYXA9ImJ1dHQiIHN0cm9rZS1saW5lam9pbj0ibWl0ZXIiIHN0cm9rZS1taXRlcmxpbWl0PSIxMCIgc3Ryb2tlLWRhc2hhcnJheT0iIiBzdHJva2UtZGFzaG9mZnNldD0iMCIgc3R5bGU9Im1peC1ibGVuZC1tb2RlOiBub3JtYWwiPjxwYXRoIGQ9Ik0xMjcuMzIyNiwxODBjMCwtNjIuMjMwMDEgNTAuNDQ3MzksLTExMi42Nzc0IDExMi42Nzc0LC0xMTIuNjc3NGM2Mi4yMzAwMSwwIDExMi42Nzc0LDUwLjQ0NzM5IDExMi42Nzc0LDExMi42Nzc0YzAsNjIuMjMwMDEgLTUwLjQ0NzM5LDExMi42Nzc0IC0xMTIuNjc3NCwxMTIuNjc3NGMtNjIuMjMwMDEsMCAtMTEyLjY3NzQsLTUwLjQ0NzM5IC0xMTIuNjc3NCwtMTEyLjY3NzR6IiBmaWxsPSIjZmY0ZDRjIiBmaWxsLXJ1bGU9Im5vbnplcm8iIHN0cm9rZS13aWR0aD0iMCIvPjxwYXRoIGQ9Ik0yODUuODU3NDIsMTUxLjA4Mzg1YzIzLjI0MDg2LDAgNDIuMDc4OSwxOC44Mzk0NiA0Mi4wNzg5LDQyLjA3ODljMCwyMy4yMzk0NCAtMTguODM4MDMsNDIuMDc4OSAtNDIuMDc4OSw0Mi4wNzg5aC05Mi4yNDA3NGMtMjMuMjQwODYsMCAtNDIuMDc4OSwtMTguODM5NDYgLTQyLjA3ODksLTQyLjA3ODljMCwtMjMuMjM5NDQgMTguODM4MDMsLTQyLjA3ODkgNDIuMDc4OSwtNDIuMDc4OWg0LjE4ODg3YzEuODExNTMsLTIxLjU3MDU1IDE5Ljg5MzU3LC0zOC41MTI4OSA0MS45MzE1LC0zOC41MTI4OWMyMi4wMzc5MywwIDQwLjExOTk3LDE2Ljk0MjM0IDQxLjkzMTUsMzguNTEyODl6IiBmaWxsPSIjZmZmZmZmIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIHN0cm9rZS13aWR0aD0iMSIvPjxwYXRoIGQ9Ik0yNjguODE1MzcsMjExLjU0MTI1YzAsMi4zOTMzMiAtMS45NDAwNSw0LjMzMzM3IC00LjMzMzM3LDQuMzMzMzdoLTE1LjM5NjAzYy0yLjM5MzMyLDAgLTQuMzMzMzcsLTEuOTQwMDUgLTQuMzMzMzcsLTQuMzMzMzd2LTkuMzU0NDVjMCwtMS42NzUwNyAwLjk2NTQ4LC0zLjE5OTk4IDIuNDc5MzQsLTMuOTE2NzJjNS44OTA1NywtMi43ODgwOSA5LjY5Njc5LC04Ljc5NzgzIDkuNjk2NzksLTE1LjMxMDI0YzAsLTkuMzM0MyAtNy41OTQyMywtMTYuOTI4NTMgLTE2LjkyODc1LC0xNi45Mjg1M2MtOS4zMzQ1MiwwIC0xNi45Mjg1Myw3LjU5NDIzIC0xNi45Mjg1MywxNi45Mjg1M2MwLDYuNTEyNjIgMy44MDYyMiwxMi41MjIxNSA5LjY5Njc5LDE1LjMxMDI0YzEuNTE0MDgsMC43MTY1MiAyLjQ3OTU2LDIuMjQxNDQgMi40Nzk1NiwzLjkxNjcydjkuMzU0NDVjMCwyLjM5MzMyIC0xLjk0MDA1LDQuMzMzMzcgLTQuMzMzMzcsNC4zMzMzN2gtMTUuMzk2NDdjLTIuMzkzMzIsMCAtNC4zMzMzNywtMS45NDAwNSAtNC4zMzMzNywtNC4zMzMzN2MwLC0yLjM5MzMyIDEuOTQwMDUsLTQuMzMzMzcgNC4zMzMzNywtNC4zMzMzN2gxMS4wNjMxdi0yLjQ0OTQ0Yy0zLjI0MzA5LC0xLjk5ODEyIC02LjAwOTA5LC00LjY5OTc2IC04LjA5MzY2LC03LjkyNjgyYy0yLjY3MDg4LC00LjEzNDQ3IC00LjA4MjY5LC04LjkzMTA4IC00LjA4MjY5LC0xMy44NzE3OGMwLC0xNC4xMTMzNiAxMS40ODE5MiwtMjUuNTk1MjcgMjUuNTk1MjcsLTI1LjU5NTI3YzE0LjExMzM2LDAgMjUuNTk1NDksMTEuNDgxOTIgMjUuNTk1NDksMjUuNTk1MDZjMCw0Ljk0MDcgLTEuNDExODEsOS43Mzc1MiAtNC4wODI0NywxMy44NzE3OGMtMi4wODQ1NywzLjIyNzA2IC00Ljg1MDM0LDUuOTI4OTIgLTguMDkzNjYsNy45MjcwNHYyLjQ0OTQ0aDExLjA2MjY2YzIuMzkzMzIsMCA0LjMzMzM3LDEuOTQwMDUgNC4zMzMzNyw0LjMzMzM3eiIgZmlsbD0iI2ZmNGQ0YyIgZmlsbC1ydWxlPSJub256ZXJvIiBzdHJva2Utd2lkdGg9IjEiLz48L2c+PC9nPjwvc3ZnPjwhLS1yb3RhdGlvbkNlbnRlcjoxMTIuNjc3Mzk5OTk5OTk5OTk6MTEyLjY3NzQtLT4=";
         }
@@ -1311,6 +1424,27 @@
             };
         }
 
+        makeValueSafeForScratch(data) {
+            try {
+                // Check if data is an object/JSON
+                if (typeof data === 'object' && data !== null) {
+                    return JSON.stringify(data);
+                } else if (typeof data === 'string') {
+                    return data;
+                } else {
+                    // Return data as-is for other types
+                    return data;
+                }
+            } catch (error) {
+                // Return data as-is if conversion fails
+                return data;
+            }
+        }
+
+        clOmegaProtocolMessageHandler(origin, channel, message) {
+
+        }
+
         initialize({ UGI }) {
             const self = this;
             if (!self.Signaling.socket) {
@@ -1320,10 +1454,12 @@
                     // Bind event handlers
                     self.Signaling.onConnect(() => {
                         console.log('Connected to signaling server.');
+
+                        // Return the promise.
                         resolve();
                     })
 
-                    self.Signaling.onClose(() => {
+                    self.Signaling.onClose("auto", () => {
                         console.log('Disconnected from signaling server.');
 
                         // To be compliant with the protocol, we must close all peer connections.
@@ -1332,11 +1468,17 @@
                             self.WebRTC.disconnectPeer(peer);
                         })
 
+                        // If this was a failed connection attempt, return the promise with a rejection.
                         reject();
                     })
 
                     self.Signaling.onNewPeer(async (peer, user) => {
                         console.log(`New peer: ${user} (${peer})`);
+
+                        // Create handler for PEER_GONE
+                        self.Signaling.onPeerGone(peer, () => {
+                            self.WebRTC.disconnectPeer(peer);
+                        })
 
                         // Create offer
                         const { offer, dataChannel } = await self.WebRTC.createOffer(peer, user);
@@ -1370,11 +1512,21 @@
                                     self.Signaling.sendIceCandidate(origin, candidate);
                                 })
                             })
+
+                            // Bind message handler
+                            self.WebRTC.onChannelMessage(origin, async(payload, channel) => {
+                                self.clOmegaProtocolMessageHandler(origin, channel, payload);
+                            })
                         })
                     })
 
                     self.Signaling.onNewHost((peer, lobby, user) => {
                         console.log(`New host: ${user} (${peer}) in lobby ${lobby}`);
+
+                        // Create handler for HOST_GONE
+                        self.Signaling.onHostGone(peer, () => {
+                            self.WebRTC.disconnectPeer(peer);
+                        })
 
                         // Configure onOffer event
                         self.Signaling.onOffer(async (origin, offer) => {
@@ -1405,6 +1557,11 @@
                                     self.Signaling.sendIceCandidate(origin, candidate);
                                 })
                             })
+
+                            // Bind message handler
+                            self.WebRTC.onChannelMessage(origin, async(payload, channel) => {
+                                self.clOmegaProtocolMessageHandler(origin, channel, payload);
+                            })
                         })
                     })
 
@@ -1418,42 +1575,64 @@
 
         init_host_mode({LOBBY, PEERS, PASSWORD, CLAIMCONFIG}) {
             const self = this;
-            if (!self.Signaling.socket) {
-                console.warn('Signaling server not connected');
-                return;
-            }
-            let allow_host_reclaim = false;
-            let allow_peers_to_claim_host = false;
-            switch (CLAIMCONFIG) {
-                case 1:
-                    allow_host_reclaim = false;
-                    allow_peers_to_claim_host = false;
-                    break;
-                case 2:
-                    allow_host_reclaim = true;
-                    allow_peers_to_claim_host = false;
-                    break;
-                case 3:
-                    allow_host_reclaim = true;
-                    allow_peers_to_claim_host = true;
-                    break;
-            }
-            self.Signaling.hostMode(LOBBY, allow_host_reclaim, allow_peers_to_claim_host, PEERS, PASSWORD, null);
+            return new Promise(async(resolve, reject) => {
+                if (!self.Signaling.socket) {
+                    console.warn('Signaling server not connected');
+                    reject();
+                    return;
+                }
+                let allow_host_reclaim = false;
+                let allow_peers_to_claim_host = false;
+                switch (CLAIMCONFIG) {
+                    case 1:
+                        allow_host_reclaim = false;
+                        allow_peers_to_claim_host = false;
+                        break;
+                    case 2:
+                        allow_host_reclaim = true;
+                        allow_peers_to_claim_host = false;
+                        break;
+                    case 3:
+                        allow_host_reclaim = true;
+                        allow_peers_to_claim_host = true;
+                        break;
+                }
+                self.Signaling.hostMode(LOBBY, allow_host_reclaim, allow_peers_to_claim_host, PEERS, PASSWORD, null);
+
+                self.Signaling.onHostModeConfig(() => {
+                    resolve();
+                })
+
+                self.Signaling.onModeConfigFailure(() => {
+                    reject();
+                })
+            })
         }
 
         init_peer_mode({LOBBY, PASSWORD}) {
             const self = this;
-            if (!self.Signaling.socket) {
-                console.warn('Signaling server not connected');
-                return;
-            }
-            self.Signaling.peerMode(LOBBY, PASSWORD, null);
+            return new Promise((resolve, reject) => {
+                if (!self.Signaling.socket) {
+                    console.warn('Signaling server not connected');
+                    reject();
+                    return;
+                }
+                self.Signaling.peerMode(LOBBY, PASSWORD, null);
+
+                self.Signaling.onPeerModeConfig(() => {
+                    resolve();
+                })
+
+                self.Signaling.onModeConfigFailure(() => {
+                    reject();
+                })
+            })
         }
 
         send({DATA, PEER, CHANNEL, WAIT}) {
             const self = this;
 
-            // Get channel.
+            // Get peer.
             const peer = self.WebRTC.dataChannels.get(PEER);
 
             if (!peer) {
@@ -1461,6 +1640,7 @@
                 return;
             }
 
+            // Get channel from peer.
             const channel = peer.get(CHANNEL);
 
             if (!channel) {
@@ -1494,14 +1674,19 @@
             if (!self.Signaling.socket) {
                 return;
             }
-            self.Signaling.Disconnect();
+            return new Promise((resolve) => {
+                self.Signaling.Disconnect();
+                self.Signaling.onClose("manual", () => {
+                    resolve();
+                })
+            })
         }
 
         is_signalling_connected() {
             if (!this.Signaling.socket) {
                 return false;
             }
-            return this.Signaling.socket.readyState === 1;
+            return (this.Signaling.socket.readyState === 1);
         }
 
         my_ID() {
@@ -1518,7 +1703,7 @@
 
         get_peers() {
             const self = this;
-            return JSON.stringify(self.WebRTC.getPeers());
+            return self.makeValueSafeForScratch(self.WebRTC.getPeers());
         }
 
         async authenticateWithCredentials({ EMAIL, PASSWORD }) {
@@ -1550,9 +1735,10 @@
         }
 
         // Request microphone permission
-        async request_mic_perms(args, util) {
+        async request_mic_perms() {
             const self = this;
             self.hasMicPerms = false;
+
             // Try to get microphone permission
             try {
                 await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1563,9 +1749,82 @@
             }
         }
 
-        get_mic_perms(args, util) {
+        get_mic_perms() {
             const self = this;
-            return (self.hasMicPerms);
+            return self.hasMicPerms;
+        }
+
+        new_dchan({CHANNEL, PEER, ORDERED}) {
+            const self = this;
+
+            // Check if peer exists
+            if (!self.WebRTC.doesPeerExist(PEER)) {
+                console.warn(`Peer ${PEER} not found.`);
+                return;
+            }
+            self.WebRTC.createChannel(PEER, CHANNEL, (ORDERED == 1));
+        }
+
+        new_vchan({PEER}) {
+            const self = this;
+
+            // Check if peer exists
+            if (!self.WebRTC.doesPeerExist(PEER)) {
+                console.warn(`Peer ${PEER} not found.`);
+                return;
+            }
+
+            self.WebRTC.openVoiceStream(PEER);
+        }
+
+        close_vchan({PEER}) {
+            const self = this;
+
+            // Check if peer exists
+            if (!self.WebRTC.doesPeerExist(PEER)) {
+                console.warn(`Peer ${PEER} not found.`);
+                return;
+            }
+
+            // self.WebRTC.closeVoiceStream(PEER);
+        }
+        
+
+        close_dchan({CHANNEL, PEER}) {
+            const self = this;
+            if (CHANNEL == "default") {
+                console.warn("You may not close the default data channel.");
+                return;
+            }
+
+            // Check if peer exists
+            if (!self.WebRTC.doesPeerExist(PEER)) {
+                console.warn(`Peer ${PEER} not found.`);
+                return;
+            }
+
+            if (!self.WebRTC.dataChannels.get(PEER).get(CHANNEL)) {
+                console.warn(`Channel ${CHANNEL} does not exist for peer ${PEER}`);
+                return;
+            }
+
+            self.WebRTC.dataChannels.get(PEER).get(CHANNEL).close();
+        }
+
+        get_peer_channels({PEER}) {
+            const self = this;
+            return self.makeValueSafeForScratch(self.WebRTC.getPeerChannels(PEER));
+        }
+
+        is_peer_connected({PEER}) {
+            const self = this;
+            return self.WebRTC.doesPeerExist(PEER);
+        }
+
+        get_channel_data({CHANNEL, PEER}) {
+            const self = this;
+            if (!self.WebRTC.doesPeerChannelExist(PEER, CHANNEL)) return "";
+            return self.makeValueSafeForScratch(self.WebRTC.dataChannels.get(PEER).get(CHANNEL).newestData);
         }
     };
 
