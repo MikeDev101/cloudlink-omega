@@ -1,9 +1,11 @@
 (function (Scratch) {
+    // Modify to point to server. (Set as localhost for testing)
+    const rootApiURL = "https://omega.mikedev101.cc"
+    const rootWsURL = "wss://omega.mikedev101.cc"
 
-    // Define class to provide message encryption (ECDH P-256 w/ AES-GCM, SPKI w/ base64-encoded public keys)
+    // Define class to provide message encryption (ECDH-P256-AES-GCM with SPKI-BASE64 public keys)
     class OmegaEncryption {
         constructor() {
-            this.publicKeys = new Map(); // Store public keys from peers
             this.secrets = new Map(); // Store derived key secrets
             this.keyPair = null; // ECDH P-256 key pair (public: spki, private: pkcs8)
         }
@@ -116,14 +118,6 @@
             }
             return bytes.buffer;
         }
-    
-        setPublicKey(remotePeerId, publicKey) {
-            this.publicKeys.set(remotePeerId, publicKey);
-        }
-    
-        getPublicKey(remotePeerId) {
-            return this.publicKeys.get(remotePeerId);
-        }
 
         setSharedKey(remotePeerId, sharedKey) {
             this.secrets.set(remotePeerId, sharedKey);
@@ -132,13 +126,36 @@
         getSharedKey(remotePeerId) {
             return this.secrets.get(remotePeerId);
         }
+
+        setSharedKeyFromPublicKey(remotePeerId, publicKey) {
+            return new Promise((resolve, reject) => {
+                // Convert to shared secret
+                this.importPublicKey(publicKey)
+                .then((pKey) => {
+                    this.deriveSharedKey(pKey, this.keyPair.privateKey)
+                    .then((sharedKey) => {
+                        this.setSharedKey(remotePeerId, sharedKey);
+                        console.log(`Set derived shared key for ${remotePeerId}.`);
+                        resolve();
+                    })
+                    .catch((error) => {
+                        console.error(`Error deriving shared key for ${remotePeerId}: ${error}`);
+                        reject();
+                    });
+                })
+                .catch((error) => {
+                    console.error(`Error importing public key for ${remotePeerId}: ${error}`);
+                    reject();
+                });
+            });
+        }
     }
     
     // Define class for authentication
-    class AuthManager {
+    class OmegaAuth {
         constructor() {
-            this.loginUrl = "https://omega.mikedev101.cc/api/v0/login";
-            this.registerUrl = "https://omega.mikedev101.cc/api/v0/register";
+            this.loginUrl = `${rootApiURL}/api/v0/login`;
+            this.registerUrl = `${rootApiURL}/api/v0/register`;
             this.registerSuccess = false;
             this.loginSuccess = false;
             this.sessionToken = null;
@@ -218,9 +235,8 @@
             this.messageHandlers = {
                 onIceCandidate: {},
                 onIceGatheringDone: {},
-                onChannelOpen: null,
+                onChannelOpen: {},
                 onChannelMessage: {},
-                onChannelClose: null,
             }
             this.iceCandidates = {};
         }
@@ -305,11 +321,11 @@
         
         async createDataOffer(remoteUserId, remoteUserName) {
             const peerConnection = this.createConnection(remoteUserId, remoteUserName);
-            const dataChannel = this.createDefaultChannel(peerConnection, remoteUserId, remoteUserName);
+            this.createDefaultChannel(peerConnection, remoteUserId, remoteUserName);
             try {
                 const offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
-                return { offer, dataChannel };
+                return offer;
             } catch (error) {
                 console.error(`Error creating offer for ${peerConnection.user} (${remoteUserId}): ${error}`);
                 return null;
@@ -318,12 +334,12 @@
     
         async createDataAnswer(remoteUserId, remoteUserName, offer) {
             const peerConnection = this.createConnection(remoteUserId, remoteUserName, false);
-            const dataChannel = this.createDefaultChannel(peerConnection, remoteUserId, remoteUserName);
+            this.createDefaultChannel(peerConnection, remoteUserId, remoteUserName);
             try {
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
                 const answer = await peerConnection.createAnswer();
                 await peerConnection.setLocalDescription(answer);
-                return { answer, dataChannel };
+                return answer;
             } catch (error) {
                 console.error(`Error creating answer for ${peerConnection.user} (${remoteUserId}): ${error}`);
                 return null;
@@ -366,6 +382,9 @@
 
             // Add channel ID counter
             conn.channelIdCounter = 0;
+
+            // Add flag to check if the peer has sent a public key
+            conn.hasPublicKey = false;
 
             // Handle ICE candidate gathering
             conn.onicecandidate = (event) => {
@@ -448,33 +467,30 @@
             if (!this.dataChannels.has(remoteUserId)) {
                 const channel = dataChannel;
 
-                // Create custom channel properties
-                channel.newestData = new String;
+                // Create channel message storage
+                channel.dataStorage = new Map();
+                channel.dataStorage.set("G_MSG", new String());
+                // TODO: implement more stores as the protocol evolves.
 
                 // Create reference to channel
                 this.dataChannels.set(remoteUserId, new Map());
     
                 channel.onmessage = (event) => {
                     console.log(`Received message from ${remoteUserName} (${remoteUserId}) in channel ${channel.label}: ${event.data}`);
-                    channel.newestData = event.data;
                     if (this.messageHandlers.onChannelMessage[remoteUserId]) {
-                        this.messageHandlers.onChannelMessage[remoteUserId](event.data, channel.label);
+                        this.messageHandlers.onChannelMessage[remoteUserId](event.data, channel);
                     }
                 };
     
                 channel.onopen = () => {
                     console.log(`Data channel ${channel.label} with ${remoteUserName} (${remoteUserId}) opened`);
-                    if (this.messageHandlers.onChannelOpen) {
-                        this.messageHandlers.onChannelOpen(remoteUserId, channel.label);
+                    if (this.messageHandlers.onChannelOpen[remoteUserId]) {
+                        this.messageHandlers.onChannelOpen[remoteUserId](channel.label);
                     }
                 };
     
                 channel.onclose = () => {
                     console.log(`Data channel ${channel.label} with ${remoteUserName} (${remoteUserId}) closed`);
-                    if (this.messageHandlers.onChannelClose) {
-                        this.messageHandlers.onChannelClose(remoteUserId, channel.label);
-                    }
-    
                     if (channel.label == "default") {
                         this.disconnectDataPeer(remoteUserId);
                     } else {
@@ -540,15 +556,6 @@
             this.handleDataChannel(dataChannel, remoteUserId, remoteUserName);
             return dataChannel;
         }
-    
-        sendData(remoteUserId, label, data) {
-            const channel = this.dataChannels.get(remoteUserId)?.get(label);
-            if (channel) {
-                channel.send(data);
-            } else {
-                console.error(`Data channel ${label} not found for ${remoteUserId}`);
-            }
-        }
 
         disconnectDataPeer(remoteUserId) {
             const peerConnection = this.peerConnections.get(remoteUserId);
@@ -580,8 +587,8 @@
             this.messageHandlers.onIceGatheringDone[remoteUserId] = callback;
         }
     
-        onChannelOpen(callback) {
-            this.messageHandlers.onChannelOpen = callback;
+        onChannelOpen(remoteUserId, callback) {
+            this.messageHandlers.onChannelOpen[remoteUserId] = callback;
         }
     
         onChannelClose(callback) {
@@ -590,6 +597,53 @@
     
         onChannelMessage(remoteUserId, callback) {
             this.messageHandlers.onChannelMessage[remoteUserId] = callback;
+        }
+
+        sendData(remoteUserId, channelLabel, opcode, payload, origin, wait, recipient) {
+            // Get peer.
+            const peer = this.dataChannels.get(remoteUserId);
+
+            if (!peer) {
+                console.warn(`Peer ${remoteUserId} not found`);
+                return;
+            }
+
+            // Get channel from peer.
+            const channel = peer.get(channelLabel);
+
+            if (!channel) {
+                console.warn(`Channel ${channelLabel} not found for peer ${remoteUserId}`);
+                return;
+            }
+
+            if (wait) channel.bufferedAmountThreshold = 0; 
+            
+            channel.send(JSON.stringify({
+                opcode,
+                payload,
+                origin,
+                recipient,
+            }))
+
+            if (wait) return new Promise((resolve) => {
+                channel.onbufferedamountlow = () => {
+                    resolve();
+                }
+            })
+        }
+
+        getChannelData(remoteUserId, channelLabel, channelDataType) {
+            const peer = this.dataChannels.get(remoteUserId);
+            if (!peer) return;
+            const channel = peer.get(channelLabel);
+            if (!channel) return;
+            return channel.dataStorage.get(channelDataType);
+        }
+
+        removeIceCandidate(remoteUserId, candidate) {
+            if (this.iceCandidates[remoteUserId].includes(candidate)) {
+                this.iceCandidates[remoteUserId].splice(this.iceCandidates[remoteUserId].indexOf(candidate), 1);
+            }
         }
     }
 
@@ -608,13 +662,15 @@
                 onPeerModeConfig: null,
                 onModeConfigFailure: null,
                 onNewHost: null,
+                onAnticipate: null,
                 onNewPeer: null,
                 onPeerGone: {},
                 onHostGone: {},
                 onIceCandidateReceived: {},
                 onOffer: null,
-                onAnswer: {},
+                onAnswer: null,
                 listeners: {},
+                onDiscover: null,
             };
             this.state = {
                 user: "", // username
@@ -626,7 +682,7 @@
         }
 
         Connect(ugi) {
-            this.url = new URL("wss://omega.mikedev101.cc/api/v0/signaling");
+            this.url = new URL(`${rootWsURL}/api/v0/signaling`);
             this.url.searchParams.append('ugi', ugi);
             this.socket = new WebSocket(this.url);
 
@@ -704,12 +760,6 @@
                     break;
                 case "RELAY_OK":
                     break;
-                case "NOT_HOST":
-                    console.warn("Protocol warning: Attempted to send offer while operating in peer mode (or flexible host mode is turned off)");
-                    break;
-                case "NOT_PEER":
-                    console.warn("Protocol warning: Attempted to send answer while operating in host mode. (or flexible host mode is turned off)");
-                    break;
                 case "KEEPALIVE":
                     this.keepalive = setTimeout(() => {
                         this.sendMessage({ opcode: 'KEEPALIVE' });
@@ -761,40 +811,26 @@
                 case "TOKEN_ORIGIN_MISMATCH":
                     console.warn("Protocol warning: Attempted to use a token generated on a different domain.");
                     break;
+                case "DISCOVER":
+                    if (this.messageHandlers.onDiscover) this.messageHandlers.onDiscover(message);
+                    break;
+                case "ANTICIPATE":
+                    if (this.messageHandlers.onAnticipate) this.messageHandlers.onAnticipate(message);
+                    break;
                 case "NEW_PEER":
-                    if (this.state.mode != 1) { // require host mode
-                        console.warn("Protocol bug: Received NEW_PEER message while operating in peer/configuring mode.");
-                        return;
-                    }
-                    if (this.messageHandlers.onNewPeer) this.messageHandlers.onNewPeer(payload.id, payload.user);
+                    if (this.messageHandlers.onNewPeer) this.messageHandlers.onNewPeer(message);
                     break;
                 case "NEW_HOST":
-                    if (this.state.mode != 0) { // require configuring mode
-                        console.warn("Protocol bug: Received NEW_HOST message while operating in host/peer mode.");
-                        return;
-                    }
-                    if (this.messageHandlers.onNewHost) this.messageHandlers.onNewHost(payload.id, payload.lobby_id, payload.user);
+                    if (this.messageHandlers.onNewHost) this.messageHandlers.onNewHost(message);
                     break;
                 case "MAKE_OFFER":
-                    if (this.state.mode != 2) { // require peer mode
-                        console.warn("Protocol bug: Received MAKE_OFFER message while operating in host/configuring mode.");
-                        return;
-                    }
-                    if (this.messageHandlers.onOffer) this.messageHandlers.onOffer(origin, payload);
+                    if (this.messageHandlers.onOffer) this.messageHandlers.onOffer(message);
                     break;
                 case "MAKE_ANSWER":
-                    if (this.state.mode != 1) { // require host mode
-                        console.warn("Protocol bug: Received MAKE_ANSWER message while operating in peer/configuring mode.");
-                        return;
-                    }
-                    if (this.messageHandlers.onAnswer[origin]) this.messageHandlers.onAnswer[origin](origin, payload);
+                    if (this.messageHandlers.onAnswer) this.messageHandlers.onAnswer(message);
                     break;
                 case "ICE":
-                    if (this.state.mode == 0) { // require host/peer mode
-                        console.warn("Protocol bug: Received ICE message while operating in configuring mode.");
-                        return;
-                    }
-                    this.messageHandlers.onIceCandidateReceived(origin, payload);
+                    if (this.messageHandlers.onIceCandidateReceived) this.messageHandlers.onIceCandidateReceived(message);
                     break;
             }
 
@@ -802,7 +838,7 @@
             if (this.messageHandlers[listener]) this.messageHandlers[listener](message);
         }
 
-        hostMode(lobby_id, allow_host_reclaim, allow_peers_to_claim_host, max_peers, password, listener) {
+        hostMode(lobby_id, allow_host_reclaim, allow_peers_to_claim_host, max_peers, password, pubkey, listener) {
             this.sendMessage({
                 opcode: 'CONFIG_HOST',
                 payload: {
@@ -810,18 +846,20 @@
                     allow_host_reclaim,
                     allow_peers_to_claim_host,
                     max_peers,
-                    password
+                    password,
+                    pubkey,
                 },
                 listener
             });
         }
 
-        peerMode(lobby_id, password, listener) {
+        peerMode(lobby_id, password, pubkey, listener) {
             this.sendMessage({
                 opcode: 'CONFIG_PEER',
                 payload: {
                     lobby_id,
-                    password
+                    password,
+                    pubkey,
                 },
                 listener
             });
@@ -855,8 +893,8 @@
             }
         }
         
-        onAnswer(remoteUserId, callback) {
-            this.messageHandlers.onAnswer[remoteUserId] = callback;
+        onAnswer(callback) {
+            this.messageHandlers.onAnswer = callback;
         }
 
         onPeerGone(remoteUserId, callback) {
@@ -867,6 +905,14 @@
             this.messageHandlers.onHostGone[remoteUserId] = callback;
         }
         
+        onDiscover(callback) {
+            this.messageHandlers.onDiscover = callback;
+        }
+
+        onAnticipate(callback) {
+            this.messageHandlers.onAnticipate = callback;
+        }
+
         onNewHost(callback) {
             this.messageHandlers.onNewHost = callback;
         }
@@ -919,9 +965,18 @@
             this.runtime = Scratch.vm.runtime; // Runtime
             this.targets = Scratch.vm.runtime.targets // Access variables
             this.hasMicPerms = false;
-            this.Signaling = new OmegaSignaling();
-            this.WebRTC = new OmegaRTC();
-            this.AuthManager = new AuthManager();
+            this.OmegaSignaling = new OmegaSignaling();
+            this.OmegaRTC = new OmegaRTC();
+            this.OmegaAuth = new OmegaAuth();
+            this.OmegaEncryption = new OmegaEncryption();
+
+            // Generate this peer's public / private key pair
+            this.OmegaEncryption.generateKeyPair().then((keyPair) => {
+                console.log(`Generated key pair:`, keyPair);
+                this.OmegaEncryption.exportPublicKey().then((key) => {
+                    console.log(`Public key:`, key);
+                });
+            });
             
             // Define icons
             this.blockIconURI =
@@ -1413,178 +1468,500 @@
 
         makeValueSafeForScratch(data) {
             try {
-                // Check if data is an object/JSON
-                if (typeof data === 'object' && data !== null) {
-                    return JSON.stringify(data);
-                } else if (typeof data === 'string') {
+                // Check if data is a string
+                if (typeof data === 'string') {
                     return data;
+                // Check if data is an object/JSON
+                } else if (typeof data === 'object' && data !== null) {
+                    return JSON.stringify(data);
                 } else {
                     // Return data as-is for other types
                     return data;
                 }
             } catch (error) {
                 // Return data as-is if conversion fails
+                console.error(`Error making data ${data} vm-safe: ${error}`);
                 return data;
             }
         }
 
-        clOmegaProtocolMessageHandler(origin, channel, message) {
-            console.log(`Received message from ${origin} in channel ${channel}: ${message}`);
-            const {opcode, payload} = message;
+        async clOmegaProtocolMessageHandler(remotePeerId, channel, message) {
+            // Declare variables
+            const self = this;
+            let packet;
+            
+            // Parse message
+            try {
+                packet = JSON.parse(message);
+            } catch (error) {
+                console.error(`Error parsing message ${message}: ${error}`);
+                return;
+            }
+            console.log(`Received message from ${remotePeerId} in channel ${channel.label}: ${message}`);
 
+            // Parse packet
+            const {opcode, payload, origin, recipient} = packet;
+            
+            // Process packet
             switch (opcode) {
-                case "PKEY":
+                case "G_MSG": // Global insecure message
+                    channel.dataStorage.set("G_MSG", payload);
                     break;
-                case "G_MSG":
+                
+                case "G_VAR": // Global insecure variable
                     break;
-                case "G_VAR":
+                
+                case "G_LIST": // Global insecure list
                     break;
-                case "G_LIST":
+                
+                case "P_MSG": // Private secure message
                     break;
-                case "P_MSG":
+                
+                case "P_VAR": // Private secure variable
                     break;
-                case "P_VAR":
+                
+                case "P_LIST": // Private secure list
                     break;
-                case "P_LIST":
+                
+                case "RING": // Request to create voice channel
                     break;
-                case "RING":
+                
+                case "PICKUP": // Accept voice channel request
                     break;
-                case "PICKUP":
+                
+                case "HANGUP": // Reject voice channel request / close voice channel
                     break;
-                case "HANGUP":
+                
+                case "V_OFFER": // Voice channel SDP offer
                     break;
-                case "V_OFFER":
+                
+                case "V_ANSWER": // Voice channel SDP answer
                     break;
-                case "V_ANSWER":
-                    break;
-                case "V_ICE":
+                
+                case "V_ICE": // Voice channel ICE
                     break;
             }
         }
 
         initialize({ UGI }) {
             const self = this;
-            if (!self.Signaling.socket) {
+            if (!self.OmegaSignaling.socket) {
                 return new Promise((resolve, reject) => {
-                    self.Signaling.Connect(UGI);
+                    self.OmegaSignaling.Connect(UGI);
 
-                    // Bind event handlers
-                    self.Signaling.onConnect(() => {
+                    // Return promise and begin listening for events 
+                    self.OmegaSignaling.onConnect(() => {
                         console.log('Connected to signaling server.');
 
                         // Return the promise.
                         resolve();
                     })
 
-                    self.Signaling.onClose("auto", () => {
+                    // Close all connections if the server disconnects
+                    self.OmegaSignaling.onClose("auto", () => {
                         console.log('Disconnected from signaling server.');
 
                         // To be compliant with the protocol, we must close all peer connections.
-                        console.log(`There are ${self.WebRTC.peerConnections.size} peer connections to close.`);
-                        Array.from(self.WebRTC.peerConnections.keys()).forEach((peer) => {
-                            self.WebRTC.disconnectDataPeer(peer);
+                        console.log(`There are ${self.OmegaRTC.peerConnections.size} peer connections to close.`);
+                        Array.from(self.OmegaRTC.peerConnections.keys()).forEach((peer) => {
+                            self.OmegaRTC.disconnectDataPeer(peer);
                         })
 
                         // If this was a failed connection attempt, return the promise with a rejection.
                         reject();
                     })
 
-                    self.Signaling.onNewPeer(async (peer, user) => {
-                        console.log(`New peer: ${user} (${peer})`);
+                    // Prepare to handle a new incoming connection during an existing session
+                    self.OmegaSignaling.onAnticipate(async(message) => {
+                        const remoteUserName = message.payload.user;
+                        const remoteUserId = message.payload.id;
+                        const pubKey = message.payload.pubkey;
+
+                        console.log(`Anticipating new connection ${remoteUserName} (${remoteUserId})`);
 
                         // Create handler for PEER_GONE
-                        self.Signaling.onPeerGone(peer, () => {
-                            self.WebRTC.disconnectDataPeer(peer);
+                        self.OmegaSignaling.onPeerGone(remoteUserId, () => {
+                            self.OmegaRTC.disconnectDataPeer(remoteUserId);
                         })
+
+                        // Setup shared secret from public key (if provided)
+                        if (pubKey) {
+                            console.log(`Peer ${remoteUserName} (${remoteUserId}) supports encryption.`);
+                            await self.OmegaEncryption.setSharedKeyFromPublicKey(remoteUserId, pubKey);
+                        }
+                    })
+
+                    // Server advertises a new peer, we need to create a new peer connection
+                    self.OmegaSignaling.onDiscover(async(message) => {
+                        const remoteUserName = message.payload.user;
+                        const remoteUserId = message.payload.id;
+                        const pubKey = message.payload.pubkey;
+                        let sharedKey;
+
+                        console.log(`Server advertising new peer ${remoteUserName} (${remoteUserId})`);
+
+                        // Create handler for PEER_GONE
+                        self.OmegaSignaling.onPeerGone(remoteUserId, () => {
+                            self.OmegaRTC.disconnectDataPeer(remoteUserId);
+                        })
+
+                        // Setup shared secret from public key (if provided)
+                        if (pubKey) {
+                            console.log(`Peer ${remoteUserName} (${remoteUserId}) supports encryption.`);
+                            await self.OmegaEncryption.setSharedKeyFromPublicKey(remoteUserId, pubKey);
+                            sharedKey = await self.OmegaEncryption.getSharedKey(remoteUserId);
+                        }
 
                         // Create offer
-                        const { offer, dataChannel } = await self.WebRTC.createDataOffer(peer, user);
+                        let offer = await self.OmegaRTC.createDataOffer(remoteUserId, remoteUserName);
 
-                        // Send created offer
-                        console.log(`Sending offer to ${user} (${peer})`);
-                        self.Signaling.sendOffer(peer, offer, null);
+                        // Encrypt offer (if public key is provided)
+                        if (sharedKey) {
+                            let {encryptedMessage, iv} = await self.OmegaEncryption.encryptMessage(JSON.stringify(offer), sharedKey);
 
-                        // Configure onAnswer event
-                        self.Signaling.onAnswer(peer, async(origin, answer) => {
+                            // Send encrypted offer
+                            self.OmegaSignaling.sendOffer(
+                                remoteUserId,
+                                {
+                                    type: 0, // data
+                                    contents: [encryptedMessage, iv],
+                                },
+                                null,
+                            );
 
-                            // Handle answer to offer
-                            console.log(`Got answer from ${user} (${origin})`);
-                            await self.WebRTC.handleDataAnswer(origin, answer);
+                        } else {
+                            // Send plaintext offer
+                            self.OmegaSignaling.sendOffer(
+                                remoteUserId,
+                                {
+                                    type: 0, // data
+                                    contents: offer,
+                                },
+                                null,
+                            );
 
-                            // Begin sending Trickle ICE candidates
-                            self.WebRTC.onIceCandidate(origin, (candidate) => {
-                                console.log(`Sending trickle ICE candidate to ${user} (${origin})`);
-                                self.Signaling.sendIceCandidate(origin, candidate);
-
-                                // Remove the candidate from the queue so we don't accidentally resend it
-                                if (self.WebRTC.iceCandidates[origin].includes(candidate)) {
-                                    self.WebRTC.iceCandidates[origin].splice(self.WebRTC.iceCandidates[origin].indexOf(candidate), 1);
-                                }
-                            })
-
-                            // If we are done gathering ICE candidates, send the remaining ones
-                            self.WebRTC.onIceGatheringDone(origin, () => {
-                                console.log(`Sending remaining tricke ICE candidates to ${user} (${origin})`);
-                                self.WebRTC.iceCandidates[origin].forEach((candidate) => {
-                                    self.Signaling.sendIceCandidate(origin, candidate);
-                                })
-                            })
-
-                            // Bind message handler
-                            self.WebRTC.onChannelMessage(origin, async(payload, channel) => {
-                                self.clOmegaProtocolMessageHandler(origin, channel, payload);
-                            })
-                        })
+                        }
                     })
 
-                    self.Signaling.onNewHost((peer, lobby, user) => {
-                        console.log(`New host: ${user} (${peer}) in lobby ${lobby}`);
+                    // Host receives a new peer, establish a new peer connection
+                    self.OmegaSignaling.onNewPeer(async(message) => {
+                        const remoteUserName = message.payload.user;
+                        const remoteUserId = message.payload.id;
+                        const pubKey = message.payload.pubkey;
+                        let sharedKey;
+
+                        console.log(`New peer ${remoteUserName} (${remoteUserId}) incoming connection.`);
+
+                        // Create handler for PEER_GONE
+                        self.OmegaSignaling.onPeerGone(remoteUserId, () => {
+                            self.OmegaRTC.disconnectDataPeer(remoteUserId);
+                        })
+
+                        // Setup shared secret from public key (if provided)
+                        if (pubKey) {
+                            console.log(`Peer ${remoteUserName} (${remoteUserId}) supports encryption.`);
+                            await self.OmegaEncryption.setSharedKeyFromPublicKey(remoteUserId, pubKey);
+                            sharedKey = await self.OmegaEncryption.getSharedKey(remoteUserId);
+                        }
+
+                        // Create offer
+                        let offer = await self.OmegaRTC.createDataOffer(remoteUserId, remoteUserName);
+
+                        // Encrypt offer
+                        if (sharedKey) {
+                            let {encryptedMessage, iv} = await self.OmegaEncryption.encryptMessage(JSON.stringify(offer), sharedKey);
+
+                            // Send encrypted offer
+                            self.OmegaSignaling.sendOffer(
+                                remoteUserId, 
+                                {
+                                    type: 0, // data
+                                    contents: [encryptedMessage, iv],
+                                }, 
+                                null
+                            );
+
+                        } else {
+                            // Send plaintext offer
+                            self.OmegaSignaling.sendOffer(
+                                remoteUserId, 
+                                {
+                                    type: 0, // data
+                                    contents: offer,
+                                }, 
+                                null
+                            );
+
+                        }
+                    })
+
+                    // Peer receives a new host, prepare for an offer
+                    self.OmegaSignaling.onNewHost(async(message) => {
+                        const remoteUserName = message.payload.user;
+                        const remoteUserId = message.payload.id;
+                        const lobby = message.payload.lobby_id;
+                        const pubKey = message.payload.pubkey;
+
+                        console.log(`New lobby ${lobby} created by host ${remoteUserName} (${remoteUserId})`);
 
                         // Create handler for HOST_GONE
-                        self.Signaling.onHostGone(peer, () => {
-                            self.WebRTC.disconnectDataPeer(peer);
+                        self.OmegaSignaling.onHostGone(remoteUserId, () => {
+                            self.OmegaRTC.disconnectDataPeer(remoteUserId);
                         })
 
-                        // Configure onOffer event
-                        self.Signaling.onOffer(async (origin, offer) => {
+                        // Setup shared secret from public key (if provided)
+                        if (pubKey) {
+                            console.log(`Host ${remoteUserName} (${remoteUserId}) supports encryption.`);
+                            await self.OmegaEncryption.setSharedKeyFromPublicKey(remoteUserId, pubKey);
+                        }
+                    })
 
-                            // Make answer from offer
-                            console.log(`Got offer from ${user} (${origin})`);
-                            const { answer, dataChannel } = await self.WebRTC.createDataAnswer(origin, user, offer);
+                    // Handle ICE candidates
+                    self.OmegaSignaling.onIceCandidateReceived(async(message) => {
+                        const remoteUserName = message.origin.user;
+                        const remoteUserId = message.origin.id;
+                        const sharedKey = await self.OmegaEncryption.getSharedKey(remoteUserId);
+                        let type = message.payload.type;
+                        let candidate = message.payload.contents;
+
+                        // Decrypt ICE candidate
+                        if (sharedKey) {
+                            let encryptedMessage = candidate[0];
+                            let iv = candidate[1];
+                            candidate = JSON.parse(await self.OmegaEncryption.decryptMessage(encryptedMessage, iv, sharedKey));
+                        }
+
+                        // Handle candidate
+                        switch (type) {
+                            case 0: // data
+                                self.OmegaRTC.addDataIceCandidate(remoteUserId, candidate);
+                                break;
+                            case 1: // voice
+                                self.OmegaRTC.addVoiceIceCandidate(remoteUserId, candidate);
+                                break;
+                        }
+                    })
+
+                    // Handle offers
+                    self.OmegaSignaling.onOffer(async(message) => {
+                        const remoteUserName = message.origin.user;
+                        const remoteUserId = message.origin.id;
+                        const sharedKey = await self.OmegaEncryption.getSharedKey(remoteUserId);
+                        let answer;
+                        let offer = message.payload.contents;
+                        let type = message.payload.type;
+
+                        console.log(`Offer received from ${remoteUserName} (${remoteUserId})`);        
+
+                        // Decrypt offer
+                        if (sharedKey) {
+                            let encryptedMessage = offer[0];
+                            let iv = offer[1];
+                            offer = JSON.parse(await self.OmegaEncryption.decryptMessage(encryptedMessage, iv, sharedKey));
+                        }
+                    
+                        // Create answer
+                        switch (type) {
+                            case 0: // data
+                                answer = await self.OmegaRTC.createDataAnswer(remoteUserId, remoteUserName, offer);
+                                break;
+                            case 1: // voice
+                                answer = await self.OmegaRTC.createVoiceAnswer(remoteUserId, remoteUserName, offer);
+                                break;
+                        }
+                        
+                        // Encrypt answer
+                        if (sharedKey) {
+                            let {encryptedMessage, iv} = await self.OmegaEncryption.encryptMessage(JSON.stringify(answer), sharedKey);
                             
-                            // Send answer
-                            console.log(`Sending answer to ${user} (${origin})`);
-                            self.Signaling.sendAnswer(origin, answer, null);
+                            // Send encrypted answer
+                            self.OmegaSignaling.sendAnswer(
+                                remoteUserId, 
+                                {
+                                    type: 0, // data
+                                    contents: [encryptedMessage, iv],
+                                }, 
+                                null
+                            );
 
-                            // Begin sending Trickle ICE candidates
-                            self.WebRTC.onIceCandidate(origin, (candidate) => {
-                                console.log(`Sending trickle ICE candidate to ${user} (${origin})`);
-                                self.Signaling.sendIceCandidate(origin, candidate);
+                        } else {
+                            // Send plaintext answer
+                            self.OmegaSignaling.sendAnswer(
+                                remoteUserId, 
+                                {
+                                    type: 0, // data
+                                    contents: answer,
+                                }, 
+                                null
+                            );
 
-                                // Remove the candidate from the queue so we don't accidentally resend it
-                                if (self.WebRTC.iceCandidates[origin].includes(candidate)) {
-                                    self.WebRTC.iceCandidates[origin].splice(self.WebRTC.iceCandidates[origin].indexOf(candidate), 1);
+                        }
+
+                        // Send Trickle ICE candidates
+                        self.OmegaRTC.onIceCandidate(remoteUserId, async(candidate) => {
+
+                            // Encrypt ICE candidate if public key is provided, otherwise send it unencrypted
+                            if (sharedKey) {
+
+                                let {encryptedMessage, iv} = await self.OmegaEncryption.encryptMessage(
+                                    JSON.stringify(candidate), 
+                                    sharedKey,
+                                );
+
+                                self.OmegaSignaling.sendIceCandidate(
+                                    remoteUserId, 
+                                    {
+                                        type: 0, // data
+                                        contents: [encryptedMessage, iv],
+                                    },
+                                );
+
+                            } else {
+                                self.OmegaSignaling.sendIceCandidate(
+                                    remoteUserId, 
+                                    {
+                                        type: 0, // data
+                                        contents: candidate,
+                                    },
+                                );
+                            }
+
+                            // Remove the candidate from the queue so we don't accidentally resend it
+                            self.OmegaRTC.removeIceCandidate(remoteUserId, candidate);
+                        })
+
+                        // Send final ICE candidates when done gathering
+                        self.OmegaRTC.onIceGatheringDone(remoteUserId, () => {
+                            
+                            self.OmegaRTC.iceCandidates[remoteUserId].forEach(async(candidate) => {
+
+                                // Encrypt ICE candidate if public key is provided, otherwise send it unencrypted
+                                if (sharedKey) {
+
+                                    let {encryptedMessage, iv} = await self.OmegaEncryption.encryptMessage(
+                                        JSON.stringify(candidate), 
+                                        sharedKey,
+                                    );
+
+                                    self.OmegaSignaling.sendIceCandidate(
+                                        remoteUserId, 
+                                        {
+                                            type: 0, // data
+                                            contents: [encryptedMessage, iv],
+                                        },
+                                    );
+
+                                } else {
+                                    self.OmegaSignaling.sendIceCandidate(
+                                        remoteUserId, 
+                                        {
+                                            type: 0, // data
+                                            contents: candidate,
+                                        },
+                                    );
                                 }
-                            })
 
-                            // If we are done gathering ICE candidates, send the remaining ones
-                            self.WebRTC.onIceGatheringDone(origin, () => {
-                                console.log(`Sending remaining tricke ICE candidates to ${user} (${origin})`);
-                                self.WebRTC.iceCandidates[origin].forEach((candidate) => {
-                                    self.Signaling.sendIceCandidate(origin, candidate);
-                                })
-                            })
-
-                            // Bind message handler
-                            self.WebRTC.onChannelMessage(origin, async(payload, channel) => {
-                                self.clOmegaProtocolMessageHandler(origin, channel, payload);
+                                // Cleanup candidates queue
+                                self.OmegaRTC.removeIceCandidate(remoteUserId, candidate);
                             })
                         })
                     })
 
-                    self.Signaling.onIceCandidateReceived(async(origin, iceCandidate) => {
-                        console.log(`Got ICE candidate from ${origin}`);
-                        self.WebRTC.addDataIceCandidate(origin, iceCandidate);
+                    // Handle answers
+                    self.OmegaSignaling.onAnswer(async(message) => {
+                        const remoteUserName = message.origin.user;
+                        const remoteUserId = message.origin.id;
+                        const sharedKey = await self.OmegaEncryption.getSharedKey(remoteUserId);
+                        let type = message.payload.type;
+                        let answer = message.payload.contents;
+
+                        console.log(`Answer received from ${remoteUserName} (${remoteUserId})`);
+
+                        // Decrypt answer
+                        if (sharedKey) {
+                            let encryptedMessage = answer[0];
+                            let iv = answer[1];
+                            answer = JSON.parse(await self.OmegaEncryption.decryptMessage(encryptedMessage, iv, sharedKey));
+                        }
+
+                        // Handle answer
+                        switch (type) {
+                            case 0: // data
+                                await self.OmegaRTC.handleDataAnswer(remoteUserId, answer);
+                                break;
+                            case 1: // voice
+                                await self.OmegaRTC.handleVoiceAnswer(remoteUserId, answer);
+                                break;
+                        }
+
+                        // Send Trickle ICE candidates
+                        self.OmegaRTC.onIceCandidate(remoteUserId, async(candidate) => {
+
+                            // Encrypt ICE candidate if public key is provided, otherwise send it unencrypted
+                            if (sharedKey) {
+
+                                let {encryptedMessage, iv} = await self.OmegaEncryption.encryptMessage(
+                                    JSON.stringify(candidate), 
+                                    sharedKey,
+                                );
+
+                                self.OmegaSignaling.sendIceCandidate(
+                                    remoteUserId, 
+                                    {
+                                        type: 0, // data
+                                        contents: [encryptedMessage, iv],
+                                    },
+                                );
+
+                            } else {
+                                self.OmegaSignaling.sendIceCandidate(
+                                    remoteUserId, 
+                                    {
+                                        type: 0, // data
+                                        contents: candidate,
+                                    },
+                                );
+                            }
+
+                            // Remove the candidate from the queue so we don't accidentally resend it
+                            self.OmegaRTC.removeIceCandidate(remoteUserId, candidate);
+                        })
+
+                        // Send final ICE candidates when done gathering
+                        self.OmegaRTC.onIceGatheringDone(remoteUserId, () => {
+                            
+                            self.OmegaRTC.iceCandidates[remoteUserId].forEach(async(candidate) => {
+
+                                // Encrypt ICE candidate if public key is provided, otherwise send it unencrypted
+                                if (sharedKey) {
+
+                                    let {encryptedMessage, iv} = await self.OmegaEncryption.encryptMessage(
+                                        JSON.stringify(candidate), 
+                                        sharedKey,
+                                    );
+
+                                    self.OmegaSignaling.sendIceCandidate(
+                                        remoteUserId, 
+                                        {
+                                            type: 0, // data
+                                            contents: [encryptedMessage, iv],
+                                        },
+                                    );
+
+                                } else {
+                                    self.OmegaSignaling.sendIceCandidate(
+                                        remoteUserId, 
+                                        {
+                                            type: 0, // data
+                                            contents: candidate,
+                                        },
+                                    );
+                                }
+
+                                // Cleanup candidates queue
+                                self.OmegaRTC.removeIceCandidate(remoteUserId, candidate);
+                            })
+                        })
                     })
                 });
             }
@@ -1593,7 +1970,7 @@
         init_host_mode({LOBBY, PEERS, PASSWORD, CLAIMCONFIG}) {
             const self = this;
             return new Promise(async(resolve, reject) => {
-                if (!self.Signaling.socket) {
+                if (!self.OmegaSignaling.socket) {
                     console.warn('Signaling server not connected');
                     reject();
                     return;
@@ -1614,13 +1991,21 @@
                         allow_peers_to_claim_host = true;
                         break;
                 }
-                self.Signaling.hostMode(LOBBY, allow_host_reclaim, allow_peers_to_claim_host, PEERS, PASSWORD, null);
+                self.OmegaSignaling.hostMode(
+                    LOBBY,
+                    allow_host_reclaim,
+                    allow_peers_to_claim_host,
+                    PEERS,
+                    PASSWORD,
+                    await self.OmegaEncryption.exportPublicKey(),
+                    null
+                );
 
-                self.Signaling.onHostModeConfig(() => {
+                self.OmegaSignaling.onHostModeConfig(() => {
                     resolve();
                 })
 
-                self.Signaling.onModeConfigFailure(() => {
+                self.OmegaSignaling.onModeConfigFailure(() => {
                     reject();
                 })
             })
@@ -1628,19 +2013,25 @@
 
         init_peer_mode({LOBBY, PASSWORD}) {
             const self = this;
-            return new Promise((resolve, reject) => {
-                if (!self.Signaling.socket) {
+            return new Promise(async(resolve, reject) => {
+                if (!self.OmegaSignaling.socket) {
                     console.warn('Signaling server not connected');
                     reject();
                     return;
                 }
-                self.Signaling.peerMode(LOBBY, PASSWORD, null);
 
-                self.Signaling.onPeerModeConfig(() => {
+                self.OmegaSignaling.peerMode(
+                    LOBBY,
+                    PASSWORD,
+                    await self.OmegaEncryption.exportPublicKey(),
+                    null,
+                );
+
+                self.OmegaSignaling.onPeerModeConfig(() => {
                     resolve();
                 })
 
-                self.Signaling.onModeConfigFailure(() => {
+                self.OmegaSignaling.onModeConfigFailure(() => {
                     reject();
                 })
             })
@@ -1648,107 +2039,88 @@
 
         send({DATA, PEER, CHANNEL, WAIT}) {
             const self = this;
-
-            // Get peer.
-            const peer = self.WebRTC.dataChannels.get(PEER);
-
-            if (!peer) {
-                console.warn(`Peer ${PEER} not found`);
-                return;
-            }
-
-            // Get channel from peer.
-            const channel = peer.get(CHANNEL);
-
-            if (!channel) {
-                console.warn(`Channel ${CHANNEL} not found for peer ${PEER}`);
-                return;
-            }
-
-            if (WAIT) channel.bufferedAmountThreshold = 0; 
-
-            // TODO: Implement cryptography support for relayed data
-            channel.send(JSON.stringify({
-                opcode: "gdata",
-                payload: DATA,
-                origin: self.Signaling.state.user,
-            }))
-
-            if (WAIT) return new Promise((resolve) => {
-                channel.onbufferedamountlow = () => {
-                    resolve();
-                }
-            })
+            self.OmegaRTC.sendData(
+                PEER,
+                CHANNEL,
+                "G_MSG",
+                DATA,
+                {
+                    id: self.OmegaSignaling.state.id,
+                    name: self.OmegaSignaling.state.name,
+                },
+                WAIT,
+                null
+            );
         }
 
         disconnect_peer({PEER}) {
             const self = this;
-            self.WebRTC.disconnectDataPeer(PEER);
+            self.OmegaRTC.disconnectDataPeer(PEER);
         }
 
         leave() {
             const self = this;
-            if (!self.Signaling.socket) {
+            if (!self.OmegaSignaling.socket) {
                 return;
             }
             return new Promise((resolve) => {
-                self.Signaling.Disconnect();
-                self.Signaling.onClose("manual", () => {
+                self.OmegaSignaling.Disconnect();
+                self.OmegaSignaling.onClose("manual", () => {
                     resolve();
                 })
             })
         }
 
         is_signalling_connected() {
-            if (!this.Signaling.socket) {
+            if (!this.OmegaSignaling.socket) {
                 return false;
             }
-            return (this.Signaling.socket.readyState === 1);
+            return (this.OmegaSignaling.socket.readyState === 1);
         }
 
         my_ID() {
-            return this.Signaling.state.id;
+            return this.OmegaSignaling.state.id;
         }
 
         my_SessionToken() {
-            return this.AuthManager.sessionToken;
+            return this.OmegaAuth.sessionToken;
         }
 
         my_Username() {
-            return this.Signaling.state.user;
+            return this.OmegaSignaling.state.user;
         }
 
         get_peers() {
             const self = this;
-            return self.makeValueSafeForScratch(self.WebRTC.getPeers());
+            return self.makeValueSafeForScratch(self.OmegaRTC.getPeers());
         }
 
         async authenticateWithCredentials({ EMAIL, PASSWORD }) {
             const self = this;
-            if (!self.Signaling.socket) {
+            if (!self.OmegaSignaling.socket) {
                 console.warn('Signaling server not connected');
                 return;
             };
-            await self.AuthManager.Login(EMAIL, PASSWORD);
-            if (self.AuthManager.loginSuccess) {
-                self.Signaling.authenticateWithToken(self.AuthManager.sessionToken, null);
+            await self.OmegaAuth.Login(EMAIL, PASSWORD);
+            if (self.OmegaAuth.loginSuccess) {
+                self.OmegaSignaling.authenticateWithToken(self.OmegaAuth.sessionToken, null);
             }
         }
 
         authenticateWithToken({TOKEN}) {
             const self = this;
-            if (!self.Signaling.socket) {
+            if (!self.OmegaSignaling.socket) {
                 console.warn('Signaling server not connected');
                 return;
             };
-            self.AuthManager.sessionToken = TOKEN;
-            self.Signaling.authenticateWithToken(self.AuthManager.sessionToken, null);
+            self.OmegaAuth.sessionToken = TOKEN;
+            self.OmegaSignaling.authenticateWithToken(self.OmegaAuth.sessionToken, null);
         }
 
         async register({ EMAIL, USERNAME, PASSWORD }) {
             const self = this;
-            await self.AuthManager.Register(EMAIL, USERNAME, PASSWORD);
-            return self.AuthManager.registerSuccess;
+            await self.OmegaAuth.Register(EMAIL, USERNAME, PASSWORD);
+            return self.OmegaAuth.registerSuccess;
         }
 
         // Request microphone permission
@@ -1775,18 +2147,18 @@
             const self = this;
 
             // Check if peer exists
-            if (!self.WebRTC.doesPeerExist(PEER)) {
+            if (!self.OmegaRTC.doesPeerExist(PEER)) {
                 console.warn(`Peer ${PEER} not found.`);
                 return;
             }
-            self.WebRTC.createChannel(PEER, CHANNEL, (ORDERED == 1));
+            self.OmegaRTC.createChannel(PEER, CHANNEL, (ORDERED == 1));
         }
 
         new_vchan({PEER}) {
             const self = this;
 
             // Check if peer exists
-            if (!self.WebRTC.doesPeerExist(PEER)) {
+            if (!self.OmegaRTC.doesPeerExist(PEER)) {
                 console.warn(`Peer ${PEER} not found.`);
                 return;
             }
@@ -1798,7 +2170,7 @@
             const self = this;
 
             // Check if peer exists
-            if (!self.WebRTC.doesPeerExist(PEER)) {
+            if (!self.OmegaRTC.doesPeerExist(PEER)) {
                 console.warn(`Peer ${PEER} not found.`);
                 return;
             }
@@ -1815,33 +2187,32 @@
             }
 
             // Check if peer exists
-            if (!self.WebRTC.doesPeerExist(PEER)) {
+            if (!self.OmegaRTC.doesPeerExist(PEER)) {
                 console.warn(`Peer ${PEER} not found.`);
                 return;
             }
 
-            if (!self.WebRTC.dataChannels.get(PEER).get(CHANNEL)) {
+            if (!self.OmegaRTC.dataChannels.get(PEER).get(CHANNEL)) {
                 console.warn(`Channel ${CHANNEL} does not exist for peer ${PEER}`);
                 return;
             }
 
-            self.WebRTC.dataChannels.get(PEER).get(CHANNEL).close();
+            self.OmegaRTC.dataChannels.get(PEER).get(CHANNEL).close();
         }
 
         get_peer_channels({PEER}) {
             const self = this;
-            return self.makeValueSafeForScratch(self.WebRTC.getPeerChannels(PEER));
+            return self.makeValueSafeForScratch(self.OmegaRTC.getPeerChannels(PEER));
         }
 
         is_peer_connected({PEER}) {
             const self = this;
-            return self.WebRTC.doesPeerExist(PEER);
+            return self.OmegaRTC.doesPeerExist(PEER);
         }
 
         get_channel_data({CHANNEL, PEER}) {
             const self = this;
-            if (!self.WebRTC.doesPeerChannelExist(PEER, CHANNEL)) return "";
-            return self.makeValueSafeForScratch(self.WebRTC.dataChannels.get(PEER).get(CHANNEL).newestData);
+            return self.makeValueSafeForScratch(self.OmegaRTC.getChannelData(PEER, CHANNEL, "G_MSG"));
         }
     };
 
