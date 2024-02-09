@@ -73,6 +73,18 @@ func MessageHandler(c *structs.Client, dm *dm.Manager, r *http.Request) {
 			HandleMakeAnswerOpcode(c, packet)
 		case "ICE":
 			HandleICEOpcode(c, packet)
+		case "CLAIM_HOST":
+			// TODO: implement CLAIM_HOST
+		case "TRANSFER_HOST":
+			// TODO: implement TRANSFER_HOST
+		case "LOCK":
+			// TODO: implement LOCK
+		case "UNLOCK":
+			// TODO: implement UNLOCK
+		case "SIZE":
+			// TODO: implement SIZE
+		case "KICK":
+			// TODO: implement KICK
 		}
 	}
 }
@@ -100,8 +112,11 @@ func HandleICEOpcode(c *structs.Client, packet *structs.SignalPacket) {
 	// Relay the offer
 	SendMessage(recipient, &structs.SignalPacket{
 		Opcode:  "ICE",
-		Origin:  c.ULID,
 		Payload: packet.Payload,
+		Origin: &structs.PeerInfo{
+			ID:   c.ULID,
+			User: c.Username,
+		},
 	})
 
 	// Tell the peer that the answer was relayed successfully
@@ -112,12 +127,6 @@ func HandleMakeAnswerOpcode(c *structs.Client, packet *structs.SignalPacket) {
 	// Check if the client has a valid session
 	if !c.ValidSession {
 		SendCodeWithMessage(c, nil, "CONFIG_REQUIRED", packet.Listener)
-		return
-	}
-
-	// Require that the client is a peer
-	if !c.IsPeer {
-		SendCodeWithMessage(c, nil, "NOT_PEER", packet.Listener)
 		return
 	}
 
@@ -137,8 +146,11 @@ func HandleMakeAnswerOpcode(c *structs.Client, packet *structs.SignalPacket) {
 	// Relay the offer
 	SendMessage(recipient, &structs.SignalPacket{
 		Opcode:  "MAKE_ANSWER",
-		Origin:  c.ULID,
 		Payload: packet.Payload,
+		Origin: &structs.PeerInfo{
+			ID:   c.ULID,
+			User: c.Username,
+		},
 	})
 
 	// Tell the peer that the answer was relayed successfully
@@ -149,12 +161,6 @@ func HandleMakeOfferOpcode(c *structs.Client, packet *structs.SignalPacket) {
 	// Check if the client has a valid session
 	if !c.ValidSession {
 		SendCodeWithMessage(c, nil, "CONFIG_REQUIRED", packet.Listener)
-		return
-	}
-
-	// Require that the client is a host
-	if !c.IsHost {
-		SendCodeWithMessage(c, nil, "NOT_HOST", packet.Listener)
 		return
 	}
 
@@ -174,8 +180,11 @@ func HandleMakeOfferOpcode(c *structs.Client, packet *structs.SignalPacket) {
 	// Relay the offer
 	SendMessage(recipient, &structs.SignalPacket{
 		Opcode:  "MAKE_OFFER",
-		Origin:  c.ULID,
 		Payload: packet.Payload,
+		Origin: &structs.PeerInfo{
+			ID:   c.ULID,
+			User: c.Username,
+		},
 	})
 
 	// Tell the host that the offer was relayed successfully
@@ -253,17 +262,53 @@ func HandleConfigPeerOpcode(c *structs.Client, packet *structs.SignalPacket, raw
 	c.IsPeer = true
 	c.Lobby = rePacket.Payload.LobbyID
 
+	// If the peer specifies a public key, set it.
+	if rePacket.Payload.PublicKey != "" {
+		log.Printf("[Signaling] Client %d specified a public key! Secure message support enabled.", c.ID)
+	}
+	c.PublicKey = rePacket.Payload.PublicKey
+
 	// Notify the host that a new peer has joined
 	SendMessage(hosts[0], &structs.SignalPacket{
 		Opcode: "NEW_PEER",
 		Payload: &structs.NewPeerParams{
-			ID:   c.ULID,
-			User: c.Username,
+			ID:        c.ULID,
+			User:      c.Username,
+			PublicKey: rePacket.Payload.PublicKey,
 		},
 	})
 
 	// Tell the client that they are now a peer
 	SendCodeWithMessage(c, nil, "ACK_PEER", packet.Listener)
+
+	// Send DISCOVER opcode to the new peer with each existing peer in the lobby
+	for _, tmppeer := range Manager.GetPeerClientsByUGIAndLobby(c.UGI, c.Lobby) {
+
+		// Exclude self
+		if tmppeer.ULID == c.ULID {
+			continue
+		}
+
+		// Send ANTICIPATE message to existing peer so they can prepare to accept the new peer connection
+		SendMessage(tmppeer, &structs.SignalPacket{
+			Opcode: "ANTICIPATE",
+			Payload: &structs.NewPeerParams{
+				ID:        c.ULID,
+				User:      c.Username,
+				PublicKey: rePacket.Payload.PublicKey,
+			},
+		})
+
+		// Send DISCOVER message to new peer so they can establish a connection with the existing peer
+		SendMessage(c, &structs.SignalPacket{
+			Opcode: "DISCOVER",
+			Payload: &structs.NewPeerParams{
+				User:      tmppeer.Username,
+				ID:        tmppeer.ULID,
+				PublicKey: tmppeer.PublicKey,
+			},
+		})
+	}
 }
 
 // HandleConfigHostOpcode handles the CONFIG_HOST opcode.
@@ -322,14 +367,21 @@ func HandleConfigHostOpcode(c *structs.Client, packet *structs.SignalPacket, raw
 	// Hash the password to store
 	lobby.Password = accounts.HashPassword(rePacket.Payload.Password)
 
+	// If the host specifies a public key, set it.
+	if rePacket.Payload.PublicKey != "" {
+		log.Printf("[Signaling] Client %d specified a public key! Secure message support enabled.", c.ID)
+	}
+	c.PublicKey = rePacket.Payload.PublicKey
+
 	// Broadcast new host
 	log.Printf("[Signaling] Client %d is now a host in lobby %s and UGI %s", c.ID, rePacket.Payload.LobbyID, c.UGI)
 	BroadcastMessage(Manager.GetAllClientsWithoutLobby(c.UGI), &structs.SignalPacket{
 		Opcode: "NEW_HOST",
 		Payload: &structs.NewHostParams{
-			ID:      c.ULID,
-			User:    c.Username,
-			LobbyID: c.Lobby,
+			ID:        c.ULID,
+			User:      c.Username,
+			LobbyID:   c.Lobby,
+			PublicKey: rePacket.Payload.PublicKey,
 		},
 	})
 
@@ -475,7 +527,12 @@ func CloseHandler(client *structs.Client) {
 	// Before we delete the client, check if it was a host.
 	if client.IsHost {
 
-		// For the time being, remove all peers from the lobby. Same as disabling host reclaim.
+		// Notify all unconfigured peers that the lobby has closed
+		for _, peer := range Manager.GetAllClientsWithoutLobby(client.UGI) {
+			SendCodeWithMessage(peer, client.Lobby, "LOBBY_CLOSE")
+		}
+
+		// Remove all peers from the lobby.
 		for _, peer := range Manager.GetPeerClientsByUGIAndLobby(client.UGI, client.Lobby) {
 			// Lock the peer, set it to not a peer, and unlock it
 			peer.Lock.Lock()
@@ -486,7 +543,7 @@ func CloseHandler(client *structs.Client) {
 			}()
 
 			// Tell the peer the lobby is closing
-			SendCodeWithMessage(peer, nil, "LOBBY_CLOSE")
+			SendCodeWithMessage(peer, client.Lobby, "LOBBY_CLOSE")
 		}
 
 		// If the client was a host, check if the lobby is empty. If it is, delete the lobby.
@@ -508,7 +565,6 @@ func CloseHandler(client *structs.Client) {
 		lobby := Manager.GetLobbyConfigStorage(client.UGI, client.Lobby)
 		host := Manager.GetClientByULID(lobby.CurrentOwnerULID)
 		SendCodeWithMessage(host, client.ULID, "PEER_GONE")
-
 	}
 
 	// Finally, delete the client

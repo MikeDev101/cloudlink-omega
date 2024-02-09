@@ -22,4 +22,5 @@ type Client struct {
 	DeveloperName string
 	Lobby         string
 	Lock          sync.RWMutex
+	PublicKey     string // Set when CONFIG_HOST or CONFIG_PEER. ECDH-P256-AES-GCM with SPKI-BASE64 encoding.
 }
