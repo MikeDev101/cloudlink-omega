@@ -29,7 +29,7 @@ No more need to grind one game to earn points. CLΩ provides a standardized poin
 CLΩ never collects any PII without your permission. And, the only data CLΩ collects is a username, a password, and a suitable email address for login. Other than games, achivements, saves and points, there's no hidden black magic behind the scenes.
 
 ### 🗝️ Secure.
-Using perfect forward secrecy, CLΩ servers will never be able to capture or read data you send/receive while playing a game, nor can it read the raw contents of CL5's WebRTC handshake process. 
+Using advanced asymmetric encryption (as well as the native encryption built into WebRTC), CLΩ servers will never be able to capture or read data you send/receive while playing a game, nor can it read the raw contents of CL5's WebRTC handshake process. 
 
 ## CL5 Features
 
