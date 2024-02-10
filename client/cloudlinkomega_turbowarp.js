@@ -991,7 +991,7 @@
             return {
                 id: 'cloudlinkomega',
                 name: 'CloudLink Ω',
-                docsURI: 'about:blank', // TODO: docs webpage
+                docsURI: 'https://github.com/MikeDev101/cloudlink-omega/wiki/CLΩ-Extension',
                 blockIconURI: this.blockIconURI,
                 menuIconURI: this.menuIconURI,
                 color1: "#ff4d4c",
