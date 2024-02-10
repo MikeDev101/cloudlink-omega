@@ -1091,7 +1091,9 @@
             this.runtime = Scratch.vm.runtime; // Runtime
             this.targets = Scratch.vm.runtime.targets // Access variables
             this.hasMicPerms = false;
-            this.globalChannelMessages = new Map();
+            this.globalDataStorage = new Map();
+            this.globalVariableStorage = new Map();
+            this.globalListStorage = new Map();
             
             // Define icons
             this.blockIconURI = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTc3IiBoZWlnaHQ9IjEyMyIgdmlld0JveD0iMCAwIDE3NyAxMjMiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxnIGNsaXAtcGF0aD0idXJsKCNjbGlwMF8xXzE5KSI+CjxwYXRoIGZpbGwtcnVsZT0iZXZlbm9kZCIgY2xpcC1ydWxlPSJldmVub2RkIiBkPSJNMTM0LjMyIDM4LjUxMjlDMTU3LjU2MSAzOC41MTI5IDE3Ni4zOTkgNTcuMzUyMyAxNzYuMzk5IDgwLjU5MThDMTc2LjM5OSAxMDMuODMxIDE1Ny41NjEgMTIyLjY3MSAxMzQuMzIgMTIyLjY3MUg0Mi4wNzg5QzE4LjgzOCAxMjIuNjcxIDAgMTAzLjgzMSAwIDgwLjU5MThDMCA1Ny4zNTIzIDE4LjgzOCAzOC41MTI5IDQyLjA3ODkgMzguNTEyOUg0Ni4yNjc4QzQ4LjA3OTMgMTYuOTQyMyA2Ni4xNjEzIDAgODguMTk5MyAwQzExMC4yMzcgMCAxMjguMzE5IDE2Ljk0MjMgMTMwLjEzMSAzOC41MTI5SDEzNC4zMloiIGZpbGw9IndoaXRlIi8+CjxwYXRoIGQ9Ik04Ny40MTk4IDEwNS4zMzNDODIuOTM3OCAxMDUuMzMzIDc4Ljc4NzggMTA0LjQ3NSA3NC45Njk4IDEwMi43NkM3MS4xNTE4IDEwMC45ODkgNjcuOTQyNSA5OC42NjUgNjUuMzQxOCA5NS43ODc3TDcxLjg5ODggODcuNTcwNkM3NC4yNzgyIDg5LjgzOTMgNzYuNzQwNSA5MS41ODIzIDc5LjI4NTggOTIuNzk5NkM4MS44ODY1IDk0LjAxNyA4NC40ODcyIDk0LjYyNTYgODcuMDg3OCA5NC42MjU2Qzg5LjUyMjUgOTQuNjI1NiA5MS42ODA1IDk0LjIzODMgOTMuNTYxOCA5My40NjM2Qzk1LjQ0MzIgOTIuNjMzNiA5Ni44ODE4IDkxLjQ5OTMgOTcuODc3OCA5MC4wNjA2Qzk4LjkyOTIgODguNTY2NiA5OS40NTQ4IDg2LjgyMzYgOTkuNDU0OCA4NC44MzE2Qzk5LjQ1NDggODIuOTUwMyA5OC45MjkyIDgxLjI5MDMgOTcuODc3OCA3OS44NTE2Qzk2LjgyNjUgNzguNDEzIDk1LjM4NzggNzcuMjc4NiA5My41NjE4IDc2LjQ0ODZDOTEuNzM1OCA3NS42MTg2IDg5LjY4ODUgNzUuMjAzNiA4Ny40MTk4IDc1LjIwMzZDODUuMzE3MiA3NS4yMDM2IDgzLjQzNTggNzUuMzk3MyA4MS43NzU4IDc1Ljc4NDZDODAuMTE1OCA3Ni4xNzIgNzguNjIxOCA3Ni42NDIzIDc3LjI5MzggNzcuMTk1NkM3NS45NjU4IDc3LjY5MzYgNzQuNzc2MiA3OC4yNDcgNzMuNzI0OCA3OC44NTU2TDY4LjA4MDggNzEuNjM0Nkw3MS42NDk4IDQ2LjMxOTZIMTA2LjUxVjU3LjAyNjZINzcuOTU3OEw4MC45NDU4IDUzLjM3NDZMNzguMjA2OCA3MS44MDA2TDc0LjMwNTggNjkuODkxNkM3NS4yNDY1IDY5LjExNyA3Ni41NDY4IDY4LjM5NzYgNzguMjA2OCA2Ny43MzM2Qzc5Ljg2NjggNjcuMDY5NiA4MS43MjA1IDY2LjUxNjMgODMuNzY3OCA2Ni4wNzM2Qzg1LjgxNTIgNjUuNjMxIDg3LjgzNDggNjUuNDA5NiA4OS44MjY4IDY1LjQwOTZDOTMuNzAwMiA2NS40MDk2IDk3LjI0MTUgNjYuMjM5NiAxMDAuNDUxIDY3Ljg5OTZDMTAzLjY2IDY5LjUwNDMgMTA2LjIzMyA3MS43NzMgMTA4LjE3IDc0LjcwNTZDMTEwLjEwNiA3Ny42MzgzIDExMS4wNzUgODEuMDY5IDExMS4wNzUgODQuOTk3NkMxMTEuMDc1IDg4LjgxNTYgMTEwLjAyMyA5Mi4yNzQgMTA3LjkyMSA5NS4zNzI3QzEwNS44MTggOTguNDE2IDEwMi45NjggMTAwLjg1MSA5OS4zNzE4IDEwMi42NzdDOTUuODMwNSAxMDQuNDQ3IDkxLjg0NjUgMTA1LjMzMyA4Ny40MTk4IDEwNS4zMzNaIiBmaWxsPSIjMEZCRDhDIi8+CjwvZz4KPGRlZnM+CjxjbGlwUGF0aCBpZD0iY2xpcDBfMV8xOSI+CjxyZWN0IHdpZHRoPSIxNzYuMzk5IiBoZWlnaHQ9IjEyMi42NzEiIGZpbGw9IndoaXRlIi8+CjwvY2xpcFBhdGg+CjwvZGVmcz4KPC9zdmc+Cg==";
@@ -1128,6 +1130,11 @@
                                 defaultValue: '',
                             },
                         }
+                    },
+                    {
+                        opcode: "leave",
+                        blockType: "command",
+                        text: "Disconnect from signaling server",
                     },
                     {
                         opcode: 'authenticate',
@@ -1185,7 +1192,6 @@
                             }
                         }
                     },
-                    "---",
                     {
                         opcode: "disconnect_peer",
                         blockType: "command",
@@ -1196,11 +1202,6 @@
                                 defaultValue: 'ID',
                             },
                         },
-                    },
-                    {
-                        opcode: "leave",
-                        blockType: "command",
-                        text: "Disconnect from signaling server",
                     },
                     "---",
                     {
@@ -1331,9 +1332,9 @@
                         }
                     },
                     {
-                        opcode: "channel_data_store_in_variable",
+                        opcode: "store_private_channel_in_variable",
                         blockType: "command",
-                        text: "Store received messages from peer [PEER]'s channel [CHANNEL] into variable [VAR]",
+                        text: "Store received private messages from peer [PEER]'s channel [CHANNEL] into variable [VAR]",
                         arguments: {
                             CHANNEL: {
                                 type: 'string',
@@ -1385,7 +1386,7 @@
                         arguments: {
                             LISTNAME: {
                                 type: 'string',
-                                defaultValue: 'my cloud list',
+                                defaultValue: 'my public cloud list',
                             },
                             CHANNEL: {
                                 type: 'string',
@@ -1393,6 +1394,45 @@
                             },
                         },
                     },
+                    {
+                        opcode: "make_broadcast_networked_list",
+                        blockType: "command",
+                        text: "Make list [LIST] a broadcastable networked list named [LISTNAME] in channel [CHANNEL]",
+                        arguments: {
+                            LIST: {
+                                type: 'string',
+                                defaultValue: 'my list',
+                            },
+                            LISTNAME: {
+                                type: 'string',
+                                defaultValue: 'public cloud list',
+                            },
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'default',
+                            },
+                        },
+                    },
+                    {
+                        opcode: "broadcast_networked_list",
+                        blockType: "command",
+                        text: "Broadcast networked list [LISTNAME] to all peers using channel [CHANNEL] and wait for broadcast to finish sending? [WAIT]",
+                        arguments: {
+                            LISTNAME: {
+                                type: 'string',
+                                defaultValue: 'public cloud list',
+                            },
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'default',
+                            },
+                            WAIT: {
+                                type: 'Boolean',
+                                defaultValue: false,
+                            },
+                        },
+                    },
+                    "---",
                     {
                         opcode: "on_channel_private_networked_list",
                         blockType: "hat",
@@ -1401,7 +1441,7 @@
                         arguments: {
                             LISTNAME: {
                                 type: 'string',
-                                defaultValue: 'my cloud list',
+                                defaultValue: 'private cloud list',
                             },
                             CHANNEL: {
                                 type: 'string',
@@ -1414,51 +1454,9 @@
                         },
                     },
                     {
-                        opcode: "broadcast_networked_list",
+                        opcode: "make_private_networked_list",
                         blockType: "command",
-                        text: "Broadcast networked list [LIST] to all peers using channel [CHANNEL] and wait for broadcast to finish sending? [WAIT]",
-                        arguments: {
-                            LIST: {
-                                type: 'string',
-                                defaultValue: 'my cloud list',
-                            },
-                            CHANNEL: {
-                                type: 'string',
-                                defaultValue: 'default',
-                            },
-                            WAIT: {
-                                type: 'Boolean',
-                                defaultValue: false,
-                            },
-                        },
-                    },
-                    {
-                        opcode: "send_networked_list",
-                        blockType: "command",
-                        text: "Send networked list [LIST] to peer [PEER] using channel [CHANNEL] and wait for list to finish sending? [WAIT]",
-                        arguments: {
-                            LIST: {
-                                type: 'string',
-                                defaultValue: 'my cloud list',
-                            },
-                            CHANNEL: {
-                                type: 'string',
-                                defaultValue: 'default',
-                            },
-                            PEER: {
-                                type: 'string',
-                                defaultValue: 'ID',
-                            },
-                            WAIT: {
-                                type: 'Boolean',
-                                defaultValue: false,
-                            },
-                        },
-                    },
-                    {
-                        opcode: "make_networked_list",
-                        blockType: "command",
-                        text: "Make list [LIST] a networked list named [LISTNAME] with peer [PEER] in channel [CHANNEL]",
+                        text: "Make list [LIST] a private networked list named [LISTNAME] with peer [PEER] in channel [CHANNEL]",
                         arguments: {
                             LIST: {
                                 type: 'string',
@@ -1466,7 +1464,7 @@
                             },
                             LISTNAME: {
                                 type: 'string',
-                                defaultValue: 'my cloud list',
+                                defaultValue: 'private cloud list',
                             },
                             CHANNEL: {
                                 type: 'string',
@@ -1475,6 +1473,29 @@
                             PEER: {
                                 type: 'string',
                                 defaultValue: 'ID',
+                            },
+                        },
+                    },
+                    {
+                        opcode: "send_private_networked_list",
+                        blockType: "command",
+                        text: "Send private networked list [LISTNAME] to peer [PEER] using channel [CHANNEL] and wait for list to finish sending? [WAIT]",
+                        arguments: {
+                            LISTNAME: {
+                                type: 'string',
+                                defaultValue: 'my private cloud list',
+                            },
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'default',
+                            },
+                            PEER: {
+                                type: 'string',
+                                defaultValue: 'ID',
+                            },
+                            WAIT: {
+                                type: 'Boolean',
+                                defaultValue: false,
                             },
                         },
                     },
@@ -1642,7 +1663,7 @@
         async clOmegaProtocolMessageHandler(remotePeerId, channel, message) {
             // Declare variables
             const self = this;
-            let packet, sharedKey;
+            let packet, sharedKey, target, tempTarget;
             
             // Parse message
             try {
@@ -1663,7 +1684,13 @@
                         break;
                     
                     case "G_MSG": // Global insecure message
-                        self.globalChannelMessages.set(channel.label, payload);
+
+                        // If the channel doesn't have a global message map, make it
+                        if (!self.globalDataStorage.has(channel.label)) {
+                            self.globalDataStorage.set(channel.label, new Map());
+                        }
+
+                        self.globalDataStorage.set(channel.label, payload);
                         break;
                     
                     case "G_VAR": // Global insecure variable
@@ -1673,9 +1700,7 @@
                         break;
                     
                     case "P_MSG": // Private secure message
-                        sharedKey = await OmegaEncryptionInstance.getSharedKey(remotePeerId);
-                        if (sharedKey) payload = await OmegaEncryptionInstance.decryptMessage(payload[0], payload[1], sharedKey);
-                        channel.dataStorage.set("P_MSG", payload);
+                        channel.dataStorage.set("pmsg", payload);
                         break;
                     
                     case "P_VAR": // Private secure variable
@@ -1693,7 +1718,6 @@
                     case "HANGUP": // Reject voice channel request / close voice channel
                         break;
                 }
-
             } catch (error) {
                 console.error(`Error handling peer ${remotePeerId}'s channel ${channel.label} message ${message}: ${error}`);
                 return;
@@ -2189,31 +2213,13 @@
         }
 
         send({DATA, PEER, CHANNEL, WAIT}) {
-            // TODO: figure out a way to improve performance (this block, even if you tell it to not wait, it still takes time to send messages)
-            const sharedKey = OmegaEncryptionInstance.getSharedKey(PEER);
-            if (sharedKey) {
-                return new Promise(async(resolve) => {
-                    const {encryptedMessage, iv} = await OmegaEncryptionInstance.encryptMessage(DATA, sharedKey);
-                    DATA = [encryptedMessage, iv];
-                    OmegaRTCInstance.sendData(
-                        PEER,
-                        CHANNEL,
-                        "P_MSG",
-                        DATA,
-                        WAIT,
-                    );
-                    resolve();
-                })
-            }
-            else {
-                OmegaRTCInstance.sendData(
-                    PEER,
-                    CHANNEL,
-                    "P_MSG",
-                    DATA,
-                    WAIT,
-                );
-            }
+            OmegaRTCInstance.sendData(
+                PEER,
+                CHANNEL,
+                "P_MSG",
+                DATA,
+                WAIT,
+            );
         }
 
         broadcast({DATA, CHANNEL, WAIT}) {
@@ -2357,17 +2363,15 @@
             // self.WebRTC.openVoiceStream(PEER);
         }
 
-        change_mic_state({MICSTATE, PEER}) {
+        change_mic_state({MICSTATE, PEER}) { // TODO
             
         }
 
-        is_peer_vchan_open({PEER}) {
+        is_peer_vchan_open({PEER}) { // TODO
 
         }
 
-        close_vchan({PEER}) {
-            const self = this;
-
+        close_vchan({PEER}) { // TODO
             // Check if peer exists
             if (!OmegaRTCInstance.doesPeerExist(PEER)) {
                 console.warn(`Peer ${PEER} not found.`);
@@ -2404,14 +2408,13 @@
         }
 
         is_peer_connected({PEER}) {
-            const self = this;
             return OmegaRTCInstance.doesPeerExist(PEER);
         }
 
         get_global_channel_data({CHANNEL}) {
             const self = this;
-            if (!self.globalChannelMessages.has(CHANNEL)) return "";
-            return self.makeValueSafeForScratch(self.globalChannelMessages.get(CHANNEL));
+            if (!self.globalDataStorage.has(CHANNEL)) return "";
+            return self.makeValueSafeForScratch(self.globalDataStorage.get(CHANNEL));
         }
 
         get_private_channel_data({CHANNEL, PEER}) {
@@ -2419,12 +2422,12 @@
             if (!OmegaRTCInstance.doesPeerExist(PEER)) return "";
             if (!OmegaRTCInstance.doesPeerChannelExist(PEER, CHANNEL)) return "";
             return self.makeValueSafeForScratch(
-                OmegaRTCInstance.dataChannels.get(PEER).get(CHANNEL).dataStorage.get("P_MSG")
+                OmegaRTCInstance.dataChannels.get(PEER).get(CHANNEL).dataStorage.get("pmsg")
             );
         }
 
-        channel_data_store_in_variable({CHANNEL, PEER, VAR}) {
-        
+        store_private_channel_in_variable({CHANNEL, PEER, VAR}, util) {
+            // TODO
         }
 
         get_client_mode() {
@@ -2436,15 +2439,130 @@
             } else return "";
         }
 
-        make_networked_list({LIST, PEER, CHANNEL}) {
+        make_private_networked_list(args, util) {
+            const {LIST, LISTNAME, PEER, CHANNEL} = args;
+            const target = util.target;
+            const list = target.lookupVariableByNameAndType(LIST, "list");
+            console.log(args, list, target);
+            
+            // Check if peer exists
+            if (!OmegaRTCInstance.doesPeerExist(PEER)) {
+                console.warn(`Peer ${PEER} not found.`);
+                return;
+            }
 
+            // Check if channel exists
+            if (!OmegaRTCInstance.doesPeerChannelExist(PEER, CHANNEL)) {
+                console.warn(`Channel ${CHANNEL} does not exist for peer ${PEER}`);
+                return;
+            }
+
+            // Check if list exists
+            if (!list) {
+                console.warn(`List ${LIST} not found.`);
+                return;
+            }
+
+            // Get channel data storage
+            const dataStorage = OmegaRTCInstance.dataChannels.get(PEER).get(CHANNEL).dataStorage;
+
+            // Create lists if it doesn't exist
+            if (!dataStorage.get("lists")) {
+                dataStorage.set("lists", new Map());
+            }
+
+            // Setup list
+            const listsStorage = dataStorage.get("lists");
+            return new Promise((resolve, reject) => {
+
+                // If the private list storage doesn't have the channel, make it
+                if (!listsStorage.has(CHANNEL)) {
+                    listsStorage.set(CHANNEL, new Map());
+                }
+
+                // Create networked list storage if it doesn't exist
+                if (!listsStorage.get(CHANNEL).has(LISTNAME)) {
+                    listsStorage.get(CHANNEL).set(LISTNAME, new Map());
+                }
+
+                // If this target hasn't made a reference array yet, create it
+                if (!listsStorage.get(CHANNEL).get(LISTNAME).has(target)) {
+                    listsStorage.get(CHANNEL).get(LISTNAME).set(target, list);
+                } else {
+                    console.warn(`List ${LIST} already exists with networked list name ${LISTNAME} in target ${target.id} with peer ${PEER} in channel ${CHANNEL}.`);
+                }
+
+                console.log(listsStorage);
+                resolve();
+            })
         }
 
-        send_networked_list({LIST, CHANNEL, PEER, WAIT}) {
+        make_broadcast_networked_list(args, util) {
+            const self = this;
+            const {LIST, LISTNAME, CHANNEL} = args;
+            const listsStorage = self.globalListStorage;
+            const target = util.target;
+            const list = target.lookupVariableByNameAndType(LIST, "list");
+            console.log(args, list, target);
 
+            // Check if list exists
+            if (!list) {
+                console.warn(`List ${LIST} not found.`);
+                return;
+            }
+
+            // Setup global networked list
+            return new Promise((resolve, reject) => {
+
+                // If the global list storage doesn't have the channel, make it
+                if (!listsStorage.has(CHANNEL)) {
+                    listsStorage.set(CHANNEL, new Map());
+                }
+
+                // Create networked list storage if it doesn't exist
+                if (!listsStorage.get(CHANNEL).has(LISTNAME)) {
+                    listsStorage.get(CHANNEL).set(LISTNAME, new Map());
+                }
+
+                // Reference the list
+                if (!listsStorage.get(CHANNEL).get(LISTNAME).has(target)) {
+                    listsStorage.get(CHANNEL).get(LISTNAME).set(target, list);
+                } else {
+                    console.warn(`List ${LIST} already exists with networked list name ${LISTNAME} in target ${target.id}.`);
+                }
+
+                console.log(listsStorage);
+                resolve();
+            })
         }
 
-        broadcast_networked_list({LIST, CHANNEL, WAIT}) {
+        send_private_networked_list(args, util) {
+            console.log(args, util);
+            return; // Temporarily disable the rest of this function
+
+            const {LISTNAME, CHANNEL, PEER, WAIT} = args;
+
+            // Check if peer exists
+            if (!OmegaRTCInstance.doesPeerExist(PEER)) {
+                console.warn(`Peer ${PEER} not found.`);
+                return;
+            }
+
+            // Check if channel exists
+            if (!OmegaRTCInstance.doesPeerChannelExist(PEER, CHANNEL)) {
+                console.warn(`Channel ${CHANNEL} does not exist for peer ${PEER}`);
+                return;
+            }
+
+            // Get channel data storage
+            const dataStorage = OmegaRTCInstance.dataChannels.get(PEER).get(CHANNEL).dataStorage;
+        }
+
+        broadcast_networked_list(args, util) {
+            console.log(args, util);
+            return; // Temporarily disable the rest of this function
+
+            const {LIST, CHANNEL, WAIT} = args;
 
         }
 
