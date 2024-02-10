@@ -159,7 +159,7 @@
             this.registerUrl = `${rootApiURL}/api/v0/register`;
             this.registerSuccess = false;
             this.loginSuccess = false;
-            this.sessionToken = null;
+            this.sessionToken = new String();
         }
 
         async Login(email, password) {
@@ -674,10 +674,8 @@
             };
         }
 
-        Connect(ugi) {
-            this.url = new URL(`${rootWsURL}/api/v0/signaling`);
-            this.url.searchParams.append('ugi', ugi);
-            this.socket = new WebSocket(this.url);
+        Connect(url) {
+            this.socket = new WebSocket(url);
 
             this.socket.onopen = () => {
 
@@ -957,62 +955,60 @@
         }
     }
 
-    // Define the extension class that glues the two previous classes together
+    // Initialize the extension classes so the two extensions can communicate
+    const OmegaSignalingInstance = new OmegaSignaling();
+    const OmegaRTCInstance = new OmegaRTC();
+    const OmegaAuthInstance = new OmegaAuth();
+    const OmegaEncryptionInstance = new OmegaEncryption();
+
+    // Generate this peer's public / private key pair
+    OmegaEncryptionInstance.generateKeyPair();
+ 
+    // Define the extension for the CLΩ service
     class CloudLinkOmega {
         constructor(Scratch) {
             this.vm = Scratch.vm; // VM
             this.runtime = Scratch.vm.runtime; // Runtime
-            this.targets = Scratch.vm.runtime.targets // Access variables
-            this.hasMicPerms = false;
-            this.OmegaSignaling = new OmegaSignaling();
-            this.OmegaRTC = new OmegaRTC();
-            this.OmegaAuth = new OmegaAuth();
-            this.OmegaEncryption = new OmegaEncryption();
 
-            this.globalChannelMessages = new Map();
-
-            // Generate this peer's public / private key pair
-            this.OmegaEncryption.generateKeyPair();
-            
             // Define icons
-            this.blockIconURI =
-                "data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjEiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHdpZHRoPSIxNzYuMzk4NTQiIGhlaWdodD0iMTIyLjY3MDY5IiB2aWV3Qm94PSIwLDAsMTc2LjM5ODU0LDEyMi42NzA2OSI+PGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTE1MS44MDA3MywtMTE4LjY2NDY1KSI+PGcgZGF0YS1wYXBlci1kYXRhPSJ7JnF1b3Q7aXNQYWludGluZ0xheWVyJnF1b3Q7OnRydWV9IiBzdHJva2U9Im5vbmUiIHN0cm9rZS13aWR0aD0iMSIgc3Ryb2tlLWxpbmVjYXA9ImJ1dHQiIHN0cm9rZS1saW5lam9pbj0ibWl0ZXIiIHN0cm9rZS1taXRlcmxpbWl0PSIxMCIgc3Ryb2tlLWRhc2hhcnJheT0iIiBzdHJva2UtZGFzaG9mZnNldD0iMCIgc3R5bGU9Im1peC1ibGVuZC1tb2RlOiBub3JtYWwiPjxwYXRoIGQ9Ik0yODYuMTIwMzcsMTU3LjE3NzU1YzIzLjI0MDg2LDAgNDIuMDc4OSwxOC44Mzk0NiA0Mi4wNzg5LDQyLjA3ODljMCwyMy4yMzk0NCAtMTguODM4MDMsNDIuMDc4OSAtNDIuMDc4OSw0Mi4wNzg5aC05Mi4yNDA3NGMtMjMuMjQwODYsMCAtNDIuMDc4OSwtMTguODM5NDYgLTQyLjA3ODksLTQyLjA3ODljMCwtMjMuMjM5NDQgMTguODM4MDMsLTQyLjA3ODkgNDIuMDc4OSwtNDIuMDc4OWg0LjE4ODg3YzEuODExNTMsLTIxLjU3MDU1IDE5Ljg5MzU3LC0zOC41MTI4OSA0MS45MzE1LC0zOC41MTI4OWMyMi4wMzc5MywwIDQwLjExOTk3LDE2Ljk0MjM0IDQxLjkzMTUsMzguNTEyODl6IiBmaWxsPSIjZmZmZmZmIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiLz48cGF0aCBkPSJNMjY5LjA3ODMzLDIxNy42MzQ5NGMwLDIuMzkzMzMgLTEuOTQwMDYsNC4zMzMzNyAtNC4zMzMzNyw0LjMzMzM3aC0xNS4zOTYwNGMtMi4zOTMzMywwIC00LjMzMzM3LC0xLjk0MDA1IC00LjMzMzM3LC00LjMzMzM3di05LjM1NDQ1YzAsLTEuNjc1MDYgMC45NjU0NywtMy4xOTk5OCAyLjQ3OTMzLC0zLjkxNjcyYzUuODkwNTcsLTIuNzg4MDkgOS42OTY3OSwtOC43OTc4MyA5LjY5Njc5LC0xNS4zMTAyNGMwLC05LjMzNDMgLTcuNTk0MjMsLTE2LjkyODUzIC0xNi45Mjg3NSwtMTYuOTI4NTNjLTkuMzM0NTIsMCAtMTYuOTI4NTMsNy41OTQyMyAtMTYuOTI4NTMsMTYuOTI4NTNjMCw2LjUxMjYyIDMuODA2MjIsMTIuNTIyMTQgOS42OTY3OSwxNS4zMTAyNGMxLjUxNDA4LDAuNzE2NTIgMi40Nzk1NiwyLjI0MTQ0IDIuNDc5NTYsMy45MTY3MnY5LjM1NDQ1YzAsMi4zOTMzMyAtMS45NDAwNiw0LjMzMzM3IC00LjMzMzM3LDQuMzMzMzdoLTE1LjM5NjQ3Yy0yLjM5MzMzLDAgLTQuMzMzMzcsLTEuOTQwMDUgLTQuMzMzMzcsLTQuMzMzMzdjMCwtMi4zOTMzMyAxLjk0MDA2LC00LjMzMzM3IDQuMzMzMzcsLTQuMzMzMzdoMTEuMDYzMXYtMi40NDk0NGMtMy4yNDMxLC0xLjk5ODEyIC02LjAwOTA5LC00LjY5OTc2IC04LjA5MzY2LC03LjkyNjgyYy0yLjY3MDg3LC00LjEzNDQ3IC00LjA4MjY4LC04LjkzMTA4IC00LjA4MjY4LC0xMy44NzE3N2MwLC0xNC4xMTMzNiAxMS40ODE5MiwtMjUuNTk1MjggMjUuNTk1MjcsLTI1LjU5NTI4YzE0LjExMzM2LDAgMjUuNTk1NSwxMS40ODE5MiAyNS41OTU1LDI1LjU5NTA2YzAsNC45NDA3IC0xLjQxMTgxLDkuNzM3NTIgLTQuMDgyNDcsMTMuODcxNzdjLTIuMDg0NTcsMy4yMjcwNiAtNC44NTAzNSw1LjkyODkyIC04LjA5MzY2LDcuOTI3MDR2Mi40NDk0NGgxMS4wNjI2N2MyLjM5MzMzLDAgNC4zMzMzNywxLjk0MDA2IDQuMzMzMzcsNC4zMzMzN3oiIGZpbGw9IiNmZjRkNGMiIGZpbGwtcnVsZT0ibm9uemVybyIvPjwvZz48L2c+PC9zdmc+PCEtLXJvdGF0aW9uQ2VudGVyOjg4LjE5OTI2OTk5OTk5OTk4OjYxLjMzNTM0NTAwMDAwMDAwNC0tPg==";
-            
-            this.menuIconURI =
-                "data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjEiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHdpZHRoPSIyMjUuMzU0OCIgaGVpZ2h0PSIyMjUuMzU0OCIgdmlld0JveD0iMCwwLDIyNS4zNTQ4LDIyNS4zNTQ4Ij48ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgtMTI3LjMyMjYsLTY3LjMyMjYpIj48ZyBkYXRhLXBhcGVyLWRhdGE9InsmcXVvdDtpc1BhaW50aW5nTGF5ZXImcXVvdDs6dHJ1ZX0iIHN0cm9rZT0ibm9uZSIgc3Ryb2tlLWxpbmVjYXA9ImJ1dHQiIHN0cm9rZS1saW5lam9pbj0ibWl0ZXIiIHN0cm9rZS1taXRlcmxpbWl0PSIxMCIgc3Ryb2tlLWRhc2hhcnJheT0iIiBzdHJva2UtZGFzaG9mZnNldD0iMCIgc3R5bGU9Im1peC1ibGVuZC1tb2RlOiBub3JtYWwiPjxwYXRoIGQ9Ik0xMjcuMzIyNiwxODBjMCwtNjIuMjMwMDEgNTAuNDQ3MzksLTExMi42Nzc0IDExMi42Nzc0LC0xMTIuNjc3NGM2Mi4yMzAwMSwwIDExMi42Nzc0LDUwLjQ0NzM5IDExMi42Nzc0LDExMi42Nzc0YzAsNjIuMjMwMDEgLTUwLjQ0NzM5LDExMi42Nzc0IC0xMTIuNjc3NCwxMTIuNjc3NGMtNjIuMjMwMDEsMCAtMTEyLjY3NzQsLTUwLjQ0NzM5IC0xMTIuNjc3NCwtMTEyLjY3NzR6IiBmaWxsPSIjZmY0ZDRjIiBmaWxsLXJ1bGU9Im5vbnplcm8iIHN0cm9rZS13aWR0aD0iMCIvPjxwYXRoIGQ9Ik0yODUuODU3NDIsMTUxLjA4Mzg1YzIzLjI0MDg2LDAgNDIuMDc4OSwxOC44Mzk0NiA0Mi4wNzg5LDQyLjA3ODljMCwyMy4yMzk0NCAtMTguODM4MDMsNDIuMDc4OSAtNDIuMDc4OSw0Mi4wNzg5aC05Mi4yNDA3NGMtMjMuMjQwODYsMCAtNDIuMDc4OSwtMTguODM5NDYgLTQyLjA3ODksLTQyLjA3ODljMCwtMjMuMjM5NDQgMTguODM4MDMsLTQyLjA3ODkgNDIuMDc4OSwtNDIuMDc4OWg0LjE4ODg3YzEuODExNTMsLTIxLjU3MDU1IDE5Ljg5MzU3LC0zOC41MTI4OSA0MS45MzE1LC0zOC41MTI4OWMyMi4wMzc5MywwIDQwLjExOTk3LDE2Ljk0MjM0IDQxLjkzMTUsMzguNTEyODl6IiBmaWxsPSIjZmZmZmZmIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIHN0cm9rZS13aWR0aD0iMSIvPjxwYXRoIGQ9Ik0yNjguODE1MzcsMjExLjU0MTI1YzAsMi4zOTMzMiAtMS45NDAwNSw0LjMzMzM3IC00LjMzMzM3LDQuMzMzMzdoLTE1LjM5NjAzYy0yLjM5MzMyLDAgLTQuMzMzMzcsLTEuOTQwMDUgLTQuMzMzMzcsLTQuMzMzMzd2LTkuMzU0NDVjMCwtMS42NzUwNyAwLjk2NTQ4LC0zLjE5OTk4IDIuNDc5MzQsLTMuOTE2NzJjNS44OTA1NywtMi43ODgwOSA5LjY5Njc5LC04Ljc5NzgzIDkuNjk2NzksLTE1LjMxMDI0YzAsLTkuMzM0MyAtNy41OTQyMywtMTYuOTI4NTMgLTE2LjkyODc1LC0xNi45Mjg1M2MtOS4zMzQ1MiwwIC0xNi45Mjg1Myw3LjU5NDIzIC0xNi45Mjg1MywxNi45Mjg1M2MwLDYuNTEyNjIgMy44MDYyMiwxMi41MjIxNSA5LjY5Njc5LDE1LjMxMDI0YzEuNTE0MDgsMC43MTY1MiAyLjQ3OTU2LDIuMjQxNDQgMi40Nzk1NiwzLjkxNjcydjkuMzU0NDVjMCwyLjM5MzMyIC0xLjk0MDA1LDQuMzMzMzcgLTQuMzMzMzcsNC4zMzMzN2gtMTUuMzk2NDdjLTIuMzkzMzIsMCAtNC4zMzMzNywtMS45NDAwNSAtNC4zMzMzNywtNC4zMzMzN2MwLC0yLjM5MzMyIDEuOTQwMDUsLTQuMzMzMzcgNC4zMzMzNywtNC4zMzMzN2gxMS4wNjMxdi0yLjQ0OTQ0Yy0zLjI0MzA5LC0xLjk5ODEyIC02LjAwOTA5LC00LjY5OTc2IC04LjA5MzY2LC03LjkyNjgyYy0yLjY3MDg4LC00LjEzNDQ3IC00LjA4MjY5LC04LjkzMTA4IC00LjA4MjY5LC0xMy44NzE3OGMwLC0xNC4xMTMzNiAxMS40ODE5MiwtMjUuNTk1MjcgMjUuNTk1MjcsLTI1LjU5NTI3YzE0LjExMzM2LDAgMjUuNTk1NDksMTEuNDgxOTIgMjUuNTk1NDksMjUuNTk1MDZjMCw0Ljk0MDcgLTEuNDExODEsOS43Mzc1MiAtNC4wODI0NywxMy44NzE3OGMtMi4wODQ1NywzLjIyNzA2IC00Ljg1MDM0LDUuOTI4OTIgLTguMDkzNjYsNy45MjcwNHYyLjQ0OTQ0aDExLjA2MjY2YzIuMzkzMzIsMCA0LjMzMzM3LDEuOTQwMDUgNC4zMzMzNyw0LjMzMzM3eiIgZmlsbD0iI2ZmNGQ0YyIgZmlsbC1ydWxlPSJub256ZXJvIiBzdHJva2Utd2lkdGg9IjEiLz48L2c+PC9nPjwvc3ZnPjwhLS1yb3RhdGlvbkNlbnRlcjoxMTIuNjc3Mzk5OTk5OTk5OTk6MTEyLjY3NzQtLT4=";
+            this.blockIconURI = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTc3IiBoZWlnaHQ9IjEyMyIgdmlld0JveD0iMCAwIDE3NyAxMjMiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxnIGNsaXAtcGF0aD0idXJsKCNjbGlwMF8xXzUzKSI+CjxwYXRoIGZpbGwtcnVsZT0iZXZlbm9kZCIgY2xpcC1ydWxlPSJldmVub2RkIiBkPSJNMTM0LjMyIDM4LjUxMjlDMTU3LjU2MSAzOC41MTI5IDE3Ni4zOTkgNTcuMzUyMyAxNzYuMzk5IDgwLjU5MThDMTc2LjM5OSAxMDMuODMxIDE1Ny41NjEgMTIyLjY3MSAxMzQuMzIgMTIyLjY3MUg0Mi4wNzg5QzE4LjgzOCAxMjIuNjcxIDAgMTAzLjgzMSAwIDgwLjU5MThDMCA1Ny4zNTIzIDE4LjgzOCAzOC41MTI5IDQyLjA3ODkgMzguNTEyOUg0Ni4yNjc4QzQ4LjA3OTMgMTYuOTQyMyA2Ni4xNjEzIDAgODguMTk5MyAwQzExMC4yMzcgMCAxMjguMzE5IDE2Ljk0MjMgMTMwLjEzMSAzOC41MTI5SDEzNC4zMloiIGZpbGw9IndoaXRlIi8+CjxwYXRoIGQ9Ik0xMTcuMjc4IDk4Ljk3MDNDMTE3LjI3OCAxMDEuMzY0IDExNS4zMzggMTAzLjMwNCAxMTIuOTQ0IDEwMy4zMDRIOTcuNTQ4MkM5NS4xNTQ5IDEwMy4zMDQgOTMuMjE0OCAxMDEuMzY0IDkzLjIxNDggOTguOTcwM1Y4OS42MTU4QzkzLjIxNDggODcuOTQwOCA5NC4xODAzIDg2LjQxNTkgOTUuNjk0MiA4NS42OTkxQzEwMS41ODUgODIuOTExIDEwNS4zOTEgNzYuOTAxMyAxMDUuMzkxIDcwLjM4ODlDMTA1LjM5MSA2MS4wNTQ2IDk3Ljc5NjcgNTMuNDYwNCA4OC40NjIyIDUzLjQ2MDRDNzkuMTI3NyA1My40NjA0IDcxLjUzMzcgNjEuMDU0NiA3MS41MzM3IDcwLjM4ODlDNzEuNTMzNyA3Ni45MDE1IDc1LjMzOTkgODIuOTExIDgxLjIzMDUgODUuNjk5MUM4Mi43NDQ1IDg2LjQxNTYgODMuNzEgODcuOTQwNiA4My43MSA4OS42MTU4Vjk4Ljk3MDNDODMuNzEgMTAxLjM2NCA4MS43NyAxMDMuMzA0IDc5LjM3NjYgMTAzLjMwNEg2My45ODAyQzYxLjU4NjkgMTAzLjMwNCA1OS42NDY4IDEwMS4zNjQgNTkuNjQ2OCA5OC45NzAzQzU5LjY0NjggOTYuNTc3IDYxLjU4NjkgOTQuNjM2OSA2My45ODAyIDk0LjYzNjlINzUuMDQzM1Y5Mi4xODc1QzcxLjgwMDIgOTAuMTg5NCA2OS4wMzQyIDg3LjQ4NzcgNjYuOTQ5NiA4NC4yNjA3QzY0LjI3ODcgODAuMTI2MiA2Mi44NjY5IDc1LjMyOTYgNjIuODY2OSA3MC4zODg5QzYyLjg2NjkgNTYuMjc1NSA3NC4zNDg5IDQ0Ljc5MzYgODguNDYyMiA0NC43OTM2QzEwMi41NzYgNDQuNzkzNiAxMTQuMDU4IDU2LjI3NTUgMTE0LjA1OCA3MC4zODg3QzExNC4wNTggNzUuMzI5NCAxMTIuNjQ2IDgwLjEyNjIgMTA5Ljk3NSA4NC4yNjA1QzEwNy44OTEgODcuNDg3NSAxMDUuMTI1IDkwLjE4OTQgMTAxLjg4MiA5Mi4xODc1Vjk0LjYzNjlIMTEyLjk0NEMxMTUuMzM4IDk0LjYzNjkgMTE3LjI3OCA5Ni41NzcgMTE3LjI3OCA5OC45NzAzWiIgZmlsbD0iI0ZGNEQ0QyIvPgo8L2c+CjxkZWZzPgo8Y2xpcFBhdGggaWQ9ImNsaXAwXzFfNTMiPgo8cmVjdCB3aWR0aD0iMTc2LjM5OSIgaGVpZ2h0PSIxMjIuNjcxIiBmaWxsPSJ3aGl0ZSIvPgo8L2NsaXBQYXRoPgo8L2RlZnM+Cjwvc3ZnPgo=";
+
+            // Define menu icon
+            this.menuIconURI = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjI2IiBoZWlnaHQ9IjIyNiIgdmlld0JveD0iMCAwIDIyNiAyMjYiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxnIGNsaXAtcGF0aD0idXJsKCNjbGlwMF8xXzIpIj4KPHBhdGggZD0iTTAgMTEyLjY3N0MwIDUwLjQ0NzQgNTAuNDQ3NCAwIDExMi42NzcgMEMxNzQuOTA3IDAgMjI1LjM1NSA1MC40NDc0IDIyNS4zNTUgMTEyLjY3N0MyMjUuMzU1IDE3NC45MDcgMTc0LjkwNyAyMjUuMzU1IDExMi42NzcgMjI1LjM1NUM1MC40NDc0IDIyNS4zNTUgMCAxNzQuOTA3IDAgMTEyLjY3N1oiIGZpbGw9IiNGRjRENEMiLz4KPHBhdGggZmlsbC1ydWxlPSJldmVub2RkIiBjbGlwLXJ1bGU9ImV2ZW5vZGQiIGQ9Ik0xNTguNTM1IDgzLjc2MTJDMTgxLjc3NiA4My43NjEyIDIwMC42MTQgMTAyLjYwMSAyMDAuNjE0IDEyNS44NEMyMDAuNjE0IDE0OS4wOCAxODEuNzc2IDE2Ny45MTkgMTU4LjUzNSAxNjcuOTE5SDY2LjI5NDFDNDMuMDUzMiAxNjcuOTE5IDI0LjIxNTIgMTQ5LjA4IDI0LjIxNTIgMTI1Ljg0QzI0LjIxNTIgMTAyLjYwMSA0My4wNTMyIDgzLjc2MTIgNjYuMjk0MSA4My43NjEySDcwLjQ4M0M3Mi4yOTQ1IDYyLjE5MDcgOTAuMzc2NSA0NS4yNDg0IDExMi40MTQgNDUuMjQ4NEMxMzQuNDUyIDQ1LjI0ODQgMTUyLjUzNCA2Mi4xOTA3IDE1NC4zNDYgODMuNzYxMkgxNTguNTM1WiIgZmlsbD0id2hpdGUiLz4KPHBhdGggZD0iTTE0MS40OTMgMTQ0LjIxOUMxNDEuNDkzIDE0Ni42MTIgMTM5LjU1MyAxNDguNTUyIDEzNy4xNTkgMTQ4LjU1MkgxMjEuNzYzQzExOS4zNyAxNDguNTUyIDExNy40MyAxNDYuNjEyIDExNy40MyAxNDQuMjE5VjEzNC44NjRDMTE3LjQzIDEzMy4xODkgMTE4LjM5NSAxMzEuNjY0IDExOS45MDkgMTMwLjk0N0MxMjUuOCAxMjguMTU5IDEyOS42MDYgMTIyLjE1IDEyOS42MDYgMTE1LjYzN0MxMjkuNjA2IDEwNi4zMDMgMTIyLjAxMiA5OC43MDg3IDExMi42NzcgOTguNzA4N0MxMDMuMzQzIDk4LjcwODcgOTUuNzQ4OSAxMDYuMzAzIDk1Ljc0ODkgMTE1LjYzN0M5NS43NDg5IDEyMi4xNSA5OS41NTUxIDEyOC4xNTkgMTA1LjQ0NiAxMzAuOTQ3QzEwNi45NiAxMzEuNjY0IDEwNy45MjUgMTMzLjE4OSAxMDcuOTI1IDEzNC44NjRWMTQ0LjIxOUMxMDcuOTI1IDE0Ni42MTIgMTA1Ljk4NSAxNDguNTUyIDEwMy41OTIgMTQ4LjU1Mkg4OC4xOTU0Qzg1LjgwMiAxNDguNTUyIDgzLjg2MiAxNDYuNjEyIDgzLjg2MiAxNDQuMjE5QzgzLjg2MiAxNDEuODI1IDg1LjgwMiAxMzkuODg1IDg4LjE5NTQgMTM5Ljg4NUg5OS4yNTg1VjEzNy40MzZDOTYuMDE1NCAxMzUuNDM4IDkzLjI0OTQgMTMyLjczNiA5MS4xNjQ4IDEyOS41MDlDODguNDkzOSAxMjUuMzc1IDg3LjA4MjEgMTIwLjU3OCA4Ny4wODIxIDExNS42MzdDODcuMDgyMSAxMDEuNTI0IDk4LjU2NCA5MC4wNDIgMTEyLjY3NyA5MC4wNDJDMTI2Ljc5MSA5MC4wNDIgMTM4LjI3MyAxMDEuNTI0IDEzOC4yNzMgMTE1LjYzN0MxMzguMjczIDEyMC41NzggMTM2Ljg2MSAxMjUuMzc1IDEzNC4xOSAxMjkuNTA5QzEzMi4xMDYgMTMyLjczNiAxMjkuMzQgMTM1LjQzOCAxMjYuMDk3IDEzNy40MzZWMTM5Ljg4NUgxMzcuMTU5QzEzOS41NTMgMTM5Ljg4NSAxNDEuNDkzIDE0MS44MjUgMTQxLjQ5MyAxNDQuMjE5WiIgZmlsbD0iI0ZGNEQ0QyIvPgo8L2c+CjxkZWZzPgo8Y2xpcFBhdGggaWQ9ImNsaXAwXzFfMiI+CjxyZWN0IHdpZHRoPSIyMjUuMzU1IiBoZWlnaHQ9IjIyNS4zNTUiIGZpbGw9IndoaXRlIi8+CjwvY2xpcFBhdGg+CjwvZGVmcz4KPC9zdmc+Cg==";
         }
 
         // Define blocks used in the extension
         getInfo() {
             return {
-                id: 'cloudlinkomega',
-                name: 'CloudLink Ω',
-                docsURI: 'https://github.com/MikeDev101/cloudlink-omega/wiki/CLΩ-Extension',
+                id: 'clomega',
+                name: 'CLΩ',
+                docsURI: 'https://github.com/MikeDev101/cloudlink-omega/wiki/Client-Extension#clω-blocks',
                 blockIconURI: this.blockIconURI,
                 menuIconURI: this.menuIconURI,
-                color1: "#ff4d4c",
-                color2: "#ff6160",
-                color3: "#ff7473",
+                color1: "#FF4D4C",
+                color2: "#FF7473",
+                color3: "#A13332",
                 blocks: [
                     {
-                        opcode: "on_signalling_connect",
-                        blockType: "event",
-                        text: "When I get connected to the game server",
-                        isEdgeActivated: false,
+                        opcode: 'get_token',
+                        blockType: 'reporter',
+                        text: 'My session token',
                     },
+                    "---",
                     {
-                        opcode: 'initialize',
-                        blockType: 'command',
-                        text: 'Connect to game [UGI]',
+                        opcode: 'build_server_url',
+                        blockType: 'reporter',
+                        text: 'Get game [UGI] server URL',
                         arguments: {
                             UGI: {
                                 type: 'string',
-                                defaultValue: '01HNPHRWS0N0AYMM5K4HN31V4W', // Test game ID.
+                                defaultValue: '01HNPHRWS0N0AYMM5K4HN31V4W',
                             },
                         }
                     },
+                    "---",
                     {
-                        opcode: 'authenticateWithCredentials',
+                        opcode: 'login_account',
                         blockType: 'command',
                         text: 'Login with email: [EMAIL] password: [PASSWORD]',
                         arguments: {
@@ -1027,18 +1023,13 @@
                         }
                     },
                     {
-                        opcode: 'authenticateWithToken',
-                        blockType: 'command',
-                        text: 'Login with session token: [TOKEN]',
-                        arguments: {
-                            TOKEN: {
-                                type: 'string',
-                                defaultValue: '',
-                            }
-                        }
+                        opcode: 'was_login_successful',
+                        blockType: 'Boolean',
+                        text: 'Was login successful?',
                     },
+                    "---",
                     {
-                        opcode: 'register',
+                        opcode: 'register_account',
                         blockType: 'command',
                         text: 'Register with email: [EMAIL] username: [USERNAME] password: [PASSWORD]',
                         arguments: {
@@ -1057,26 +1048,115 @@
                         }
                     },
                     {
+                        opcode: 'was_register_successful',
+                        blockType: 'Boolean',
+                        text: 'Was registration successful?',
+                    },
+                ]
+            };
+        }
+
+        async login_account({ EMAIL, PASSWORD }) {
+            await OmegaAuthInstance.Login(EMAIL, PASSWORD);
+        }
+
+        was_login_successful() {
+            return OmegaAuthInstance.loginSuccess;
+        }
+
+        async register_account({ EMAIL, USERNAME, PASSWORD }) {
+            await OmegaAuthInstance.Register(EMAIL, USERNAME, PASSWORD);
+            return OmegaAuthInstance.registerSuccess;
+        }
+
+        was_register_successful() {
+            return OmegaAuthInstance.registerSuccess;
+        }
+
+        get_token() {
+            return OmegaAuthInstance.sessionToken;
+        }
+
+        build_server_url({UGI}) {
+            let url = new URL(`${rootWsURL}/api/v0/signaling`);
+            url.searchParams.append('ugi', UGI);
+            return url.toString();
+        }
+    }
+
+    // Define the extension for the CL5 protocol
+    class CloudLink5 {
+        constructor(Scratch) {
+            this.vm = Scratch.vm; // VM
+            this.runtime = Scratch.vm.runtime; // Runtime
+            this.targets = Scratch.vm.runtime.targets // Access variables
+            this.hasMicPerms = false;
+            this.globalChannelMessages = new Map();
+            
+            // Define icons
+            this.blockIconURI = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTc3IiBoZWlnaHQ9IjEyMyIgdmlld0JveD0iMCAwIDE3NyAxMjMiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxnIGNsaXAtcGF0aD0idXJsKCNjbGlwMF8xXzE5KSI+CjxwYXRoIGZpbGwtcnVsZT0iZXZlbm9kZCIgY2xpcC1ydWxlPSJldmVub2RkIiBkPSJNMTM0LjMyIDM4LjUxMjlDMTU3LjU2MSAzOC41MTI5IDE3Ni4zOTkgNTcuMzUyMyAxNzYuMzk5IDgwLjU5MThDMTc2LjM5OSAxMDMuODMxIDE1Ny41NjEgMTIyLjY3MSAxMzQuMzIgMTIyLjY3MUg0Mi4wNzg5QzE4LjgzOCAxMjIuNjcxIDAgMTAzLjgzMSAwIDgwLjU5MThDMCA1Ny4zNTIzIDE4LjgzOCAzOC41MTI5IDQyLjA3ODkgMzguNTEyOUg0Ni4yNjc4QzQ4LjA3OTMgMTYuOTQyMyA2Ni4xNjEzIDAgODguMTk5MyAwQzExMC4yMzcgMCAxMjguMzE5IDE2Ljk0MjMgMTMwLjEzMSAzOC41MTI5SDEzNC4zMloiIGZpbGw9IndoaXRlIi8+CjxwYXRoIGQ9Ik04Ny40MTk4IDEwNS4zMzNDODIuOTM3OCAxMDUuMzMzIDc4Ljc4NzggMTA0LjQ3NSA3NC45Njk4IDEwMi43NkM3MS4xNTE4IDEwMC45ODkgNjcuOTQyNSA5OC42NjUgNjUuMzQxOCA5NS43ODc3TDcxLjg5ODggODcuNTcwNkM3NC4yNzgyIDg5LjgzOTMgNzYuNzQwNSA5MS41ODIzIDc5LjI4NTggOTIuNzk5NkM4MS44ODY1IDk0LjAxNyA4NC40ODcyIDk0LjYyNTYgODcuMDg3OCA5NC42MjU2Qzg5LjUyMjUgOTQuNjI1NiA5MS42ODA1IDk0LjIzODMgOTMuNTYxOCA5My40NjM2Qzk1LjQ0MzIgOTIuNjMzNiA5Ni44ODE4IDkxLjQ5OTMgOTcuODc3OCA5MC4wNjA2Qzk4LjkyOTIgODguNTY2NiA5OS40NTQ4IDg2LjgyMzYgOTkuNDU0OCA4NC44MzE2Qzk5LjQ1NDggODIuOTUwMyA5OC45MjkyIDgxLjI5MDMgOTcuODc3OCA3OS44NTE2Qzk2LjgyNjUgNzguNDEzIDk1LjM4NzggNzcuMjc4NiA5My41NjE4IDc2LjQ0ODZDOTEuNzM1OCA3NS42MTg2IDg5LjY4ODUgNzUuMjAzNiA4Ny40MTk4IDc1LjIwMzZDODUuMzE3MiA3NS4yMDM2IDgzLjQzNTggNzUuMzk3MyA4MS43NzU4IDc1Ljc4NDZDODAuMTE1OCA3Ni4xNzIgNzguNjIxOCA3Ni42NDIzIDc3LjI5MzggNzcuMTk1NkM3NS45NjU4IDc3LjY5MzYgNzQuNzc2MiA3OC4yNDcgNzMuNzI0OCA3OC44NTU2TDY4LjA4MDggNzEuNjM0Nkw3MS42NDk4IDQ2LjMxOTZIMTA2LjUxVjU3LjAyNjZINzcuOTU3OEw4MC45NDU4IDUzLjM3NDZMNzguMjA2OCA3MS44MDA2TDc0LjMwNTggNjkuODkxNkM3NS4yNDY1IDY5LjExNyA3Ni41NDY4IDY4LjM5NzYgNzguMjA2OCA2Ny43MzM2Qzc5Ljg2NjggNjcuMDY5NiA4MS43MjA1IDY2LjUxNjMgODMuNzY3OCA2Ni4wNzM2Qzg1LjgxNTIgNjUuNjMxIDg3LjgzNDggNjUuNDA5NiA4OS44MjY4IDY1LjQwOTZDOTMuNzAwMiA2NS40MDk2IDk3LjI0MTUgNjYuMjM5NiAxMDAuNDUxIDY3Ljg5OTZDMTAzLjY2IDY5LjUwNDMgMTA2LjIzMyA3MS43NzMgMTA4LjE3IDc0LjcwNTZDMTEwLjEwNiA3Ny42MzgzIDExMS4wNzUgODEuMDY5IDExMS4wNzUgODQuOTk3NkMxMTEuMDc1IDg4LjgxNTYgMTEwLjAyMyA5Mi4yNzQgMTA3LjkyMSA5NS4zNzI3QzEwNS44MTggOTguNDE2IDEwMi45NjggMTAwLjg1MSA5OS4zNzE4IDEwMi42NzdDOTUuODMwNSAxMDQuNDQ3IDkxLjg0NjUgMTA1LjMzMyA4Ny40MTk4IDEwNS4zMzNaIiBmaWxsPSIjMEZCRDhDIi8+CjwvZz4KPGRlZnM+CjxjbGlwUGF0aCBpZD0iY2xpcDBfMV8xOSI+CjxyZWN0IHdpZHRoPSIxNzYuMzk5IiBoZWlnaHQ9IjEyMi42NzEiIGZpbGw9IndoaXRlIi8+CjwvY2xpcFBhdGg+CjwvZGVmcz4KPC9zdmc+Cg==";
+            
+            // Define menu icon
+            this.menuIconURI = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjI2IiBoZWlnaHQ9IjIyNiIgdmlld0JveD0iMCAwIDIyNiAyMjYiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxnIGNsaXAtcGF0aD0idXJsKCNjbGlwMF8xXzEzKSI+CjxwYXRoIGQ9Ik0wIDExMi42NzdDMCA1MC40NDc0IDUwLjQ0NzQgMCAxMTIuNjc3IDBDMTc0LjkwNyAwIDIyNS4zNTUgNTAuNDQ3NCAyMjUuMzU1IDExMi42NzdDMjI1LjM1NSAxNzQuOTA3IDE3NC45MDcgMjI1LjM1NSAxMTIuNjc3IDIyNS4zNTVDNTAuNDQ3NCAyMjUuMzU1IDAgMTc0LjkwNyAwIDExMi42NzdaIiBmaWxsPSIjMEZCRDhDIi8+CjxwYXRoIGZpbGwtcnVsZT0iZXZlbm9kZCIgY2xpcC1ydWxlPSJldmVub2RkIiBkPSJNMTU4LjUzNSA4My43NjEyQzE4MS43NzYgODMuNzYxMiAyMDAuNjE0IDEwMi42MDEgMjAwLjYxNCAxMjUuODRDMjAwLjYxNCAxNDkuMDggMTgxLjc3NiAxNjcuOTE5IDE1OC41MzUgMTY3LjkxOUg2Ni4yOTQxQzQzLjA1MzIgMTY3LjkxOSAyNC4yMTUyIDE0OS4wOCAyNC4yMTUyIDEyNS44NEMyNC4yMTUyIDEwMi42MDEgNDMuMDUzMiA4My43NjEyIDY2LjI5NDEgODMuNzYxMkg3MC40ODNDNzIuMjk0NSA2Mi4xOTA3IDkwLjM3NjUgNDUuMjQ4NCAxMTIuNDE0IDQ1LjI0ODRDMTM0LjQ1MiA0NS4yNDg0IDE1Mi41MzQgNjIuMTkwNyAxNTQuMzQ2IDgzLjc2MTJIMTU4LjUzNVoiIGZpbGw9IndoaXRlIi8+CjxwYXRoIGQ9Ik0xMTEuNjM1IDE1MC41ODFDMTA3LjE1MyAxNTAuNTgxIDEwMy4wMDMgMTQ5LjcyMyA5OS4xODUgMTQ4LjAwOEM5NS4zNjcgMTQ2LjIzNyA5Mi4xNTc3IDE0My45MTMgODkuNTU3IDE0MS4wMzZMOTYuMTE0IDEzMi44MTlDOTguNDkzMyAxMzUuMDg4IDEwMC45NTYgMTM2LjgzMSAxMDMuNTAxIDEzOC4wNDhDMTA2LjEwMiAxMzkuMjY1IDEwOC43MDIgMTM5Ljg3NCAxMTEuMzAzIDEzOS44NzRDMTEzLjczOCAxMzkuODc0IDExNS44OTYgMTM5LjQ4NyAxMTcuNzc3IDEzOC43MTJDMTE5LjY1OCAxMzcuODgyIDEyMS4wOTcgMTM2Ljc0OCAxMjIuMDkzIDEzNS4zMDlDMTIzLjE0NCAxMzMuODE1IDEyMy42NyAxMzIuMDcyIDEyMy42NyAxMzAuMDhDMTIzLjY3IDEyOC4xOTkgMTIzLjE0NCAxMjYuNTM5IDEyMi4wOTMgMTI1LjFDMTIxLjA0MiAxMjMuNjYxIDExOS42MDMgMTIyLjUyNyAxMTcuNzc3IDEyMS42OTdDMTE1Ljk1MSAxMjAuODY3IDExMy45MDQgMTIwLjQ1MiAxMTEuNjM1IDEyMC40NTJDMTA5LjUzMiAxMjAuNDUyIDEwNy42NTEgMTIwLjY0NiAxMDUuOTkxIDEyMS4wMzNDMTA0LjMzMSAxMjEuNDIgMTAyLjgzNyAxMjEuODkxIDEwMS41MDkgMTIyLjQ0NEMxMDAuMTgxIDEyMi45NDIgOTguOTkxMyAxMjMuNDk1IDk3Ljk0IDEyNC4xMDRMOTIuMjk2IDExNi44ODNMOTUuODY1IDkxLjU2OEgxMzAuNzI1VjEwMi4yNzVIMTAyLjE3M0wxMDUuMTYxIDk4LjYyM0wxMDIuNDIyIDExNy4wNDlMOTguNTIxIDExNS4xNEM5OS40NjE3IDExNC4zNjUgMTAwLjc2MiAxMTMuNjQ2IDEwMi40MjIgMTEyLjk4MkMxMDQuMDgyIDExMi4zMTggMTA1LjkzNiAxMTEuNzY1IDEwNy45ODMgMTExLjMyMkMxMTAuMDMgMTEwLjg3OSAxMTIuMDUgMTEwLjY1OCAxMTQuMDQyIDExMC42NThDMTE3LjkxNSAxMTAuNjU4IDEyMS40NTcgMTExLjQ4OCAxMjQuNjY2IDExMy4xNDhDMTI3Ljg3NSAxMTQuNzUzIDEzMC40NDggMTE3LjAyMSAxMzIuMzg1IDExOS45NTRDMTM0LjMyMiAxMjIuODg3IDEzNS4yOSAxMjYuMzE3IDEzNS4yOSAxMzAuMjQ2QzEzNS4yOSAxMzQuMDY0IDEzNC4yMzkgMTM3LjUyMiAxMzIuMTM2IDE0MC42MjFDMTMwLjAzMyAxNDMuNjY0IDEyNy4xODQgMTQ2LjA5OSAxMjMuNTg3IDE0Ny45MjVDMTIwLjA0NiAxNDkuNjk2IDExNi4wNjIgMTUwLjU4MSAxMTEuNjM1IDE1MC41ODFaIiBmaWxsPSIjMEZCRDhDIi8+CjwvZz4KPGRlZnM+CjxjbGlwUGF0aCBpZD0iY2xpcDBfMV8xMyI+CjxyZWN0IHdpZHRoPSIyMjUuMzU1IiBoZWlnaHQ9IjIyNS4zNTUiIGZpbGw9IndoaXRlIi8+CjwvY2xpcFBhdGg+CjwvZGVmcz4KPC9zdmc+Cg==";
+        }
+
+        // Define blocks used in the extension
+        getInfo() {
+            return {
+                id: 'cl5',
+                name: 'CL5',
+                docsURI: 'https://github.com/MikeDev101/cloudlink-omega/wiki/Client-Extension#cl5-blocks',
+                blockIconURI: this.blockIconURI,
+                menuIconURI: this.menuIconURI,
+                color1: "#0FBD8C",
+                color2: "#80C6B2",
+                color3: "#0A7255",
+                blocks: [
+                    {
+                        opcode: "on_signalling_connect",
+                        blockType: "event",
+                        text: "When I am connected to signaling server",
+                        isEdgeActivated: false,
+                    },
+                    {
+                        opcode: 'initialize',
+                        blockType: 'command',
+                        text: 'Connect to signaling server [SERVER]',
+                        arguments: {
+                            SERVER: {
+                                type: 'string',
+                                defaultValue: '',
+                            },
+                        }
+                    },
+                    {
+                        opcode: 'authenticate',
+                        blockType: 'command',
+                        text: 'Authenticate with token [TOKEN]',
+                        arguments: {
+                            TOKEN: {
+                                type: 'string',
+                                defaultValue: '',
+                            }
+                        }
+                    },
+                    {
                         opcode: 'is_signalling_connected',
                         blockType: 'Boolean',
-                        text: 'Connected to game server?',
+                        text: 'Connected to signaling server?',
                     },
                     "---",
                     {
                         opcode: 'my_ID',
                         blockType: 'reporter',
-                        text: 'My ID',
+                        text: 'My Peer ID',
                     },
                     {
                         opcode: 'my_Username',
                         blockType: 'reporter',
                         text: 'My Username',
                     },
-                    {
-                        opcode: 'my_SessionToken',
-                        blockType: 'reporter',
-                        text: 'My Session Token',
-                    },
+                    
                     "---",
                     {
                         opcode: 'get_peers',
@@ -1104,6 +1184,23 @@
                                 defaultValue: 'ID',
                             }
                         }
+                    },
+                    "---",
+                    {
+                        opcode: "disconnect_peer",
+                        blockType: "command",
+                        text: "Close connection with peer [PEER]",
+                        arguments: {
+                            PEER: {
+                                type: 'string',
+                                defaultValue: 'ID',
+                            },
+                        },
+                    },
+                    {
+                        opcode: "leave",
+                        blockType: "command",
+                        text: "Disconnect from signaling server",
                     },
                     "---",
                     {
@@ -1164,9 +1261,21 @@
                     },
                     "---",
                     {
-                        opcode: "on_dchan_message",
+                        opcode: "on_broadcast_message",
                         blockType: "hat",
-                        text: "When I get a message from peer [PEER] in channel [CHANNEL]",
+                        text: "When I get a broadcast message in channel [CHANNEL]",
+                        isEdgeActivated: false,
+                        arguments: {
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'default',
+                            },
+                        },
+                    },
+                    {
+                        opcode: "on_private_message",
+                        blockType: "hat",
+                        text: "When I get a private message from peer [PEER] in channel [CHANNEL]",
                         isEdgeActivated: false,
                         arguments: {
                             CHANNEL: {
@@ -1269,9 +1378,25 @@
                     },
                     "---",
                     {
-                        opcode: "on_channel_networked_list",
+                        opcode: "on_channel_broadcast_networked_list",
                         blockType: "hat",
-                        text: "When I get a networked list named [LISTNAME] from peer [PEER] in channel [CHANNEL]",
+                        text: "When I get a broadcasted networked list named [LISTNAME] in channel [CHANNEL]",
+                        isEdgeActivated: false,
+                        arguments: {
+                            LISTNAME: {
+                                type: 'string',
+                                defaultValue: 'my cloud list',
+                            },
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'default',
+                            },
+                        },
+                    },
+                    {
+                        opcode: "on_channel_private_networked_list",
+                        blockType: "hat",
+                        text: "When I get a private networked list named [LISTNAME] from peer [PEER] in channel [CHANNEL]",
                         isEdgeActivated: false,
                         arguments: {
                             LISTNAME: {
@@ -1289,11 +1414,30 @@
                         },
                     },
                     {
+                        opcode: "broadcast_networked_list",
+                        blockType: "command",
+                        text: "Broadcast networked list [LIST] to all peers using channel [CHANNEL] and wait for broadcast to finish sending? [WAIT]",
+                        arguments: {
+                            LIST: {
+                                type: 'string',
+                                defaultValue: 'my cloud list',
+                            },
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'default',
+                            },
+                            WAIT: {
+                                type: 'Boolean',
+                                defaultValue: false,
+                            },
+                        },
+                    },
+                    {
                         opcode: "send_networked_list",
                         blockType: "command",
-                        text: "Send networked list [LISTNAME] to peer [PEER] using channel [CHANNEL] and wait for cloud list to finish sending? [WAIT]",
+                        text: "Send networked list [LIST] to peer [PEER] using channel [CHANNEL] and wait for list to finish sending? [WAIT]",
                         arguments: {
-                            LISTNAME: {
+                            LIST: {
                                 type: 'string',
                                 defaultValue: 'my cloud list',
                             },
@@ -1369,23 +1513,6 @@
                                 defaultValue: 'ID',
                             },
                         },
-                    },
-                    "---",
-                    {
-                        opcode: "disconnect_peer",
-                        blockType: "command",
-                        text: "Close connection with peer [PEER]",
-                        arguments: {
-                            PEER: {
-                                type: 'string',
-                                defaultValue: 'ID',
-                            },
-                        },
-                    },
-                    {
-                        opcode: "leave",
-                        blockType: "command",
-                        text: "Disconnect from game",
                     },
                     "---",
                     {
@@ -1520,69 +1647,67 @@
             // Parse message
             try {
                 packet = JSON.parse(message);
+
+                // Parse packet
+                const opcode = packet.opcode;
+                let payload = packet.payload;
+                
+                // Process packet
+                switch (opcode) {
+                    case "NEWCHAN": // Open a new data channel with custom settings
+                        // Synchronize our channel ID counter
+                        OmegaRTCInstance.peerConnections.get(remotePeerId).channelIdCounter = payload.id;
+
+                        // Create channel
+                        console.log(OmegaRTCInstance.createChannel(remotePeerId, payload.name, payload.ordered, payload.id));
+                        break;
+                    
+                    case "G_MSG": // Global insecure message
+                        self.globalChannelMessages.set(channel.label, payload);
+                        break;
+                    
+                    case "G_VAR": // Global insecure variable
+                        break;
+                    
+                    case "G_LIST": // Global insecure list
+                        break;
+                    
+                    case "P_MSG": // Private secure message
+                        sharedKey = await OmegaEncryptionInstance.getSharedKey(remotePeerId);
+                        if (sharedKey) payload = await OmegaEncryptionInstance.decryptMessage(payload[0], payload[1], sharedKey);
+                        channel.dataStorage.set("P_MSG", payload);
+                        break;
+                    
+                    case "P_VAR": // Private secure variable
+                        break;
+                    
+                    case "P_LIST": // Private secure list
+                        break;
+                    
+                    case "RING": // Request to create voice channel
+                        break;
+                    
+                    case "PICKUP": // Accept voice channel request
+                        break;
+                    
+                    case "HANGUP": // Reject voice channel request / close voice channel
+                        break;
+                }
+
             } catch (error) {
-                console.error(`Error parsing message ${message}: ${error}`);
+                console.error(`Error handling peer ${remotePeerId}'s channel ${channel.label} message ${message}: ${error}`);
                 return;
-            }
-
-            // Remove later (logging to console slows things down)
-            console.log(`Received message from ${remotePeerId} in channel ${channel.label}: ${message}`);
-
-            // Parse packet
-            const opcode = packet.opcode;
-            let payload = packet.payload;
-            
-            // Process packet
-            switch (opcode) {
-                case "NEWCHAN": // Open a new data channel with custom settings
-                    // Synchronize our channel ID counter
-                    self.OmegaRTC.peerConnections.get(remotePeerId).channelIdCounter = payload.id;
-
-                    // Create channel
-                    console.log(self.OmegaRTC.createChannel(remotePeerId, payload.name, payload.ordered, payload.id));
-                    break;
-                
-                case "G_MSG": // Global insecure message
-                    self.globalChannelMessages.set(channel.label, payload);
-                    break;
-                
-                case "G_VAR": // Global insecure variable
-                    break;
-                
-                case "G_LIST": // Global insecure list
-                    break;
-                
-                case "P_MSG": // Private secure message
-                    sharedKey = await self.OmegaEncryption.getSharedKey(remotePeerId);
-                    if (sharedKey) payload = await self.OmegaEncryption.decryptMessage(payload[0], payload[1], sharedKey);
-                    channel.dataStorage.set("P_MSG", payload);
-                    break;
-                
-                case "P_VAR": // Private secure variable
-                    break;
-                
-                case "P_LIST": // Private secure list
-                    break;
-                
-                case "RING": // Request to create voice channel
-                    break;
-                
-                case "PICKUP": // Accept voice channel request
-                    break;
-                
-                case "HANGUP": // Reject voice channel request / close voice channel
-                    break;
             }
         }
 
-        initialize({ UGI }) {
+        initialize({ SERVER }) {
             const self = this;
-            if (!self.OmegaSignaling.socket) {
+            if (!OmegaSignalingInstance.socket) {
                 return new Promise((resolve, reject) => {
-                    self.OmegaSignaling.Connect(UGI);
+                    OmegaSignalingInstance.Connect(SERVER);
 
                     // Return promise and begin listening for events 
-                    self.OmegaSignaling.onConnect(() => {
+                    OmegaSignalingInstance.onConnect(() => {
                         console.log('Connected to signaling server.');
 
                         // Return the promise.
@@ -1590,12 +1715,12 @@
                     })
 
                     // Close all connections if the server disconnects
-                    self.OmegaSignaling.onClose("auto", () => {
+                    OmegaSignalingInstance.onClose("auto", () => {
                         console.log('Disconnected from signaling server.');
 
                         // To be compliant with the protocol, we must close all peer connections.
-                        Array.from(self.OmegaRTC.peerConnections.keys()).forEach((peer) => {
-                            self.OmegaRTC.disconnectDataPeer(peer);
+                        Array.from(OmegaRTCInstance.peerConnections.keys()).forEach((peer) => {
+                            OmegaRTCInstance.disconnectDataPeer(peer);
                         })
 
                         // If this was a failed connection attempt, return the promise with a rejection.
@@ -1603,49 +1728,49 @@
                     })
 
                     // Prepare to handle a new incoming connection during an existing session
-                    self.OmegaSignaling.onAnticipate(async(message) => {
+                    OmegaSignalingInstance.onAnticipate(async(message) => {
                         const remoteUserName = message.payload.user;
                         const remoteUserId = message.payload.id;
                         const pubKey = message.payload.pubkey;
 
                         // Create handler for PEER_GONE
-                        self.OmegaSignaling.onPeerGone(remoteUserId, () => {
-                            self.OmegaRTC.disconnectDataPeer(remoteUserId);
+                        OmegaSignalingInstance.onPeerGone(remoteUserId, () => {
+                            OmegaRTCInstance.disconnectDataPeer(remoteUserId);
                         })
 
                         // Setup shared secret from public key (if provided)
                         if (pubKey) {
-                            await self.OmegaEncryption.setSharedKeyFromPublicKey(remoteUserId, pubKey);
+                            await OmegaEncryptionInstance.setSharedKeyFromPublicKey(remoteUserId, pubKey);
                         }
                     })
 
                     // Server advertises a new peer, we need to create a new peer connection
-                    self.OmegaSignaling.onDiscover(async(message) => {
+                    OmegaSignalingInstance.onDiscover(async(message) => {
                         const remoteUserName = message.payload.user;
                         const remoteUserId = message.payload.id;
                         const pubKey = message.payload.pubkey;
                         let sharedKey;
 
                         // Create handler for PEER_GONE
-                        self.OmegaSignaling.onPeerGone(remoteUserId, () => {
-                            self.OmegaRTC.disconnectDataPeer(remoteUserId);
+                        OmegaSignalingInstance.onPeerGone(remoteUserId, () => {
+                            OmegaRTCInstance.disconnectDataPeer(remoteUserId);
                         })
 
                         // Setup shared secret from public key (if provided)
                         if (pubKey) {
-                            await self.OmegaEncryption.setSharedKeyFromPublicKey(remoteUserId, pubKey);
-                            sharedKey = await self.OmegaEncryption.getSharedKey(remoteUserId);
+                            await OmegaEncryptionInstance.setSharedKeyFromPublicKey(remoteUserId, pubKey);
+                            sharedKey = await OmegaEncryptionInstance.getSharedKey(remoteUserId);
                         }
 
                         // Create offer
-                        let offer = await self.OmegaRTC.createDataOffer(remoteUserId, remoteUserName);
+                        let offer = await OmegaRTCInstance.createDataOffer(remoteUserId, remoteUserName);
 
                         // Encrypt offer (if public key is provided)
                         if (sharedKey) {
-                            let {encryptedMessage, iv} = await self.OmegaEncryption.encryptMessage(JSON.stringify(offer), sharedKey);
+                            let {encryptedMessage, iv} = await OmegaEncryptionInstance.encryptMessage(JSON.stringify(offer), sharedKey);
 
                             // Send encrypted offer
-                            self.OmegaSignaling.sendOffer(
+                            OmegaSignalingInstance.sendOffer(
                                 remoteUserId,
                                 {
                                     type: 0, // data
@@ -1656,7 +1781,7 @@
 
                         } else {
                             // Send plaintext offer
-                            self.OmegaSignaling.sendOffer(
+                            OmegaSignalingInstance.sendOffer(
                                 remoteUserId,
                                 {
                                     type: 0, // data
@@ -1669,32 +1794,32 @@
                     })
 
                     // Host receives a new peer, establish a new peer connection
-                    self.OmegaSignaling.onNewPeer(async(message) => {
+                    OmegaSignalingInstance.onNewPeer(async(message) => {
                         const remoteUserName = message.payload.user;
                         const remoteUserId = message.payload.id;
                         const pubKey = message.payload.pubkey;
                         let sharedKey;
 
                         // Create handler for PEER_GONE
-                        self.OmegaSignaling.onPeerGone(remoteUserId, () => {
-                            self.OmegaRTC.disconnectDataPeer(remoteUserId);
+                        OmegaSignalingInstance.onPeerGone(remoteUserId, () => {
+                            OmegaRTCInstance.disconnectDataPeer(remoteUserId);
                         })
 
                         // Setup shared secret from public key (if provided)
                         if (pubKey) {
-                            await self.OmegaEncryption.setSharedKeyFromPublicKey(remoteUserId, pubKey);
-                            sharedKey = await self.OmegaEncryption.getSharedKey(remoteUserId);
+                            await OmegaEncryptionInstance.setSharedKeyFromPublicKey(remoteUserId, pubKey);
+                            sharedKey = await OmegaEncryptionInstance.getSharedKey(remoteUserId);
                         }
 
                         // Create offer
-                        let offer = await self.OmegaRTC.createDataOffer(remoteUserId, remoteUserName);
+                        let offer = await OmegaRTCInstance.createDataOffer(remoteUserId, remoteUserName);
 
                         // Encrypt offer
                         if (sharedKey) {
-                            let {encryptedMessage, iv} = await self.OmegaEncryption.encryptMessage(JSON.stringify(offer), sharedKey);
+                            let {encryptedMessage, iv} = await OmegaEncryptionInstance.encryptMessage(JSON.stringify(offer), sharedKey);
 
                             // Send encrypted offer
-                            self.OmegaSignaling.sendOffer(
+                            OmegaSignalingInstance.sendOffer(
                                 remoteUserId, 
                                 {
                                     type: 0, // data
@@ -1705,7 +1830,7 @@
 
                         } else {
                             // Send plaintext offer
-                            self.OmegaSignaling.sendOffer(
+                            OmegaSignalingInstance.sendOffer(
                                 remoteUserId, 
                                 {
                                     type: 0, // data
@@ -1718,7 +1843,7 @@
                     })
 
                     // Peer receives a new host, prepare for an offer
-                    self.OmegaSignaling.onNewHost(async(message) => {
+                    OmegaSignalingInstance.onNewHost(async(message) => {
                         const remoteUserName = message.payload.user;
                         const remoteUserId = message.payload.id;
                         const lobby = message.payload.lobby_id;
@@ -1727,21 +1852,21 @@
                         console.log(`New lobby ${lobby} created by host ${remoteUserName} (${remoteUserId})`);
 
                         // Create handler for HOST_GONE
-                        self.OmegaSignaling.onHostGone(remoteUserId, () => {
-                            self.OmegaRTC.disconnectDataPeer(remoteUserId);
+                        OmegaSignalingInstance.onHostGone(remoteUserId, () => {
+                            OmegaRTCInstance.disconnectDataPeer(remoteUserId);
                         })
 
                         // Setup shared secret from public key (if provided)
                         if (pubKey) {
-                            await self.OmegaEncryption.setSharedKeyFromPublicKey(remoteUserId, pubKey);
+                            await OmegaEncryptionInstance.setSharedKeyFromPublicKey(remoteUserId, pubKey);
                         }
                     })
 
                     // Handle ICE candidates
-                    self.OmegaSignaling.onIceCandidateReceived(async(message) => {
+                    OmegaSignalingInstance.onIceCandidateReceived(async(message) => {
                         const remoteUserName = message.origin.user;
                         const remoteUserId = message.origin.id;
-                        const sharedKey = await self.OmegaEncryption.getSharedKey(remoteUserId);
+                        const sharedKey = await OmegaEncryptionInstance.getSharedKey(remoteUserId);
                         let type = message.payload.type;
                         let candidate = message.payload.contents;
 
@@ -1749,25 +1874,25 @@
                         if (sharedKey) {
                             let encryptedMessage = candidate[0];
                             let iv = candidate[1];
-                            candidate = JSON.parse(await self.OmegaEncryption.decryptMessage(encryptedMessage, iv, sharedKey));
+                            candidate = JSON.parse(await OmegaEncryptionInstance.decryptMessage(encryptedMessage, iv, sharedKey));
                         }
 
                         // Handle candidate
                         switch (type) {
                             case 0: // data
-                                self.OmegaRTC.addDataIceCandidate(remoteUserId, candidate);
+                                OmegaRTCInstance.addDataIceCandidate(remoteUserId, candidate);
                                 break;
                             case 1: // voice
-                                self.OmegaRTC.addVoiceIceCandidate(remoteUserId, candidate);
+                                OmegaRTCInstance.addVoiceIceCandidate(remoteUserId, candidate);
                                 break;
                         }
                     })
 
                     // Handle offers
-                    self.OmegaSignaling.onOffer(async(message) => {
+                    OmegaSignalingInstance.onOffer(async(message) => {
                         const remoteUserName = message.origin.user;
                         const remoteUserId = message.origin.id;
-                        const sharedKey = await self.OmegaEncryption.getSharedKey(remoteUserId);
+                        const sharedKey = await OmegaEncryptionInstance.getSharedKey(remoteUserId);
                         let answer;
                         let offer = message.payload.contents;
                         let type = message.payload.type;   
@@ -1776,25 +1901,25 @@
                         if (sharedKey) {
                             let encryptedMessage = offer[0];
                             let iv = offer[1];
-                            offer = JSON.parse(await self.OmegaEncryption.decryptMessage(encryptedMessage, iv, sharedKey));
+                            offer = JSON.parse(await OmegaEncryptionInstance.decryptMessage(encryptedMessage, iv, sharedKey));
                         }
                     
                         // Create answer
                         switch (type) {
                             case 0: // data
-                                answer = await self.OmegaRTC.createDataAnswer(remoteUserId, remoteUserName, offer);
+                                answer = await OmegaRTCInstance.createDataAnswer(remoteUserId, remoteUserName, offer);
                                 break;
                             case 1: // voice
-                                answer = await self.OmegaRTC.createVoiceAnswer(remoteUserId, remoteUserName, offer);
+                                answer = await OmegaRTCInstance.createVoiceAnswer(remoteUserId, remoteUserName, offer);
                                 break;
                         }
                         
                         // Encrypt answer
                         if (sharedKey) {
-                            let {encryptedMessage, iv} = await self.OmegaEncryption.encryptMessage(JSON.stringify(answer), sharedKey);
+                            let {encryptedMessage, iv} = await OmegaEncryptionInstance.encryptMessage(JSON.stringify(answer), sharedKey);
                             
                             // Send encrypted answer
-                            self.OmegaSignaling.sendAnswer(
+                            OmegaSignalingInstance.sendAnswer(
                                 remoteUserId, 
                                 {
                                     type: 0, // data
@@ -1805,7 +1930,7 @@
 
                         } else {
                             // Send plaintext answer
-                            self.OmegaSignaling.sendAnswer(
+                            OmegaSignalingInstance.sendAnswer(
                                 remoteUserId, 
                                 {
                                     type: 0, // data
@@ -1817,22 +1942,22 @@
                         }
 
                         // Begin handling incoming messages
-                        self.OmegaRTC.onChannelMessage(remoteUserId, async(message, channel) => {
+                        OmegaRTCInstance.onChannelMessage(remoteUserId, async(message, channel) => {
                             await self.clOmegaProtocolMessageHandler(remoteUserId, channel, message);
                         })
 
                         // Send Trickle ICE candidates
-                        self.OmegaRTC.onIceCandidate(remoteUserId, async(candidate) => {
+                        OmegaRTCInstance.onIceCandidate(remoteUserId, async(candidate) => {
 
                             // Encrypt ICE candidate if public key is provided, otherwise send it unencrypted
                             if (sharedKey) {
 
-                                let {encryptedMessage, iv} = await self.OmegaEncryption.encryptMessage(
+                                let {encryptedMessage, iv} = await OmegaEncryptionInstance.encryptMessage(
                                     JSON.stringify(candidate), 
                                     sharedKey,
                                 );
 
-                                self.OmegaSignaling.sendIceCandidate(
+                                OmegaSignalingInstance.sendIceCandidate(
                                     remoteUserId, 
                                     {
                                         type: 0, // data
@@ -1841,7 +1966,7 @@
                                 );
 
                             } else {
-                                self.OmegaSignaling.sendIceCandidate(
+                                OmegaSignalingInstance.sendIceCandidate(
                                     remoteUserId, 
                                     {
                                         type: 0, // data
@@ -1851,23 +1976,23 @@
                             }
 
                             // Remove the candidate from the queue so we don't accidentally resend it
-                            self.OmegaRTC.removeIceCandidate(remoteUserId, candidate);
+                            OmegaRTCInstance.removeIceCandidate(remoteUserId, candidate);
                         })
 
                         // Send final ICE candidates when done gathering
-                        self.OmegaRTC.onIceGatheringDone(remoteUserId, () => {
+                        OmegaRTCInstance.onIceGatheringDone(remoteUserId, () => {
                             
-                            self.OmegaRTC.iceCandidates[remoteUserId].forEach(async(candidate) => {
+                            OmegaRTCInstance.iceCandidates[remoteUserId].forEach(async(candidate) => {
 
                                 // Encrypt ICE candidate if public key is provided, otherwise send it unencrypted
                                 if (sharedKey) {
 
-                                    let {encryptedMessage, iv} = await self.OmegaEncryption.encryptMessage(
+                                    let {encryptedMessage, iv} = await OmegaEncryptionInstance.encryptMessage(
                                         JSON.stringify(candidate), 
                                         sharedKey,
                                     );
 
-                                    self.OmegaSignaling.sendIceCandidate(
+                                    OmegaSignalingInstance.sendIceCandidate(
                                         remoteUserId, 
                                         {
                                             type: 0, // data
@@ -1876,7 +2001,7 @@
                                     );
 
                                 } else {
-                                    self.OmegaSignaling.sendIceCandidate(
+                                    OmegaSignalingInstance.sendIceCandidate(
                                         remoteUserId, 
                                         {
                                             type: 0, // data
@@ -1886,15 +2011,15 @@
                                 }
 
                                 // Cleanup candidates queue
-                                self.OmegaRTC.removeIceCandidate(remoteUserId, candidate);
+                                OmegaRTCInstance.removeIceCandidate(remoteUserId, candidate);
                             })
                         })
                     })
 
                     // Handle answers
-                    self.OmegaSignaling.onAnswer(async(message) => {
+                    OmegaSignalingInstance.onAnswer(async(message) => {
                         const remoteUserId = message.origin.id;
-                        const sharedKey = await self.OmegaEncryption.getSharedKey(remoteUserId);
+                        const sharedKey = await OmegaEncryptionInstance.getSharedKey(remoteUserId);
                         let type = message.payload.type;
                         let answer = message.payload.contents;
 
@@ -1902,36 +2027,36 @@
                         if (sharedKey) {
                             let encryptedMessage = answer[0];
                             let iv = answer[1];
-                            answer = JSON.parse(await self.OmegaEncryption.decryptMessage(encryptedMessage, iv, sharedKey));
+                            answer = JSON.parse(await OmegaEncryptionInstance.decryptMessage(encryptedMessage, iv, sharedKey));
                         }
 
                         // Handle answer
                         switch (type) {
                             case 0: // data
-                                await self.OmegaRTC.handleDataAnswer(remoteUserId, answer);
+                                await OmegaRTCInstance.handleDataAnswer(remoteUserId, answer);
                                 break;
                             case 1: // voice
-                                await self.OmegaRTC.handleVoiceAnswer(remoteUserId, answer);
+                                await OmegaRTCInstance.handleVoiceAnswer(remoteUserId, answer);
                                 break;
                         }
 
                         // Begin handling incoming messages
-                        self.OmegaRTC.onChannelMessage(remoteUserId, async(message, channel) => {
+                        OmegaRTCInstance.onChannelMessage(remoteUserId, async(message, channel) => {
                             await self.clOmegaProtocolMessageHandler(remoteUserId, channel, message);
                         })
 
                         // Send Trickle ICE candidates
-                        self.OmegaRTC.onIceCandidate(remoteUserId, async(candidate) => {
+                        OmegaRTCInstance.onIceCandidate(remoteUserId, async(candidate) => {
 
                             // Encrypt ICE candidate if public key is provided, otherwise send it unencrypted
                             if (sharedKey) {
 
-                                let {encryptedMessage, iv} = await self.OmegaEncryption.encryptMessage(
+                                let {encryptedMessage, iv} = await OmegaEncryptionInstance.encryptMessage(
                                     JSON.stringify(candidate), 
                                     sharedKey,
                                 );
 
-                                self.OmegaSignaling.sendIceCandidate(
+                                OmegaSignalingInstance.sendIceCandidate(
                                     remoteUserId, 
                                     {
                                         type: 0, // data
@@ -1940,7 +2065,7 @@
                                 );
 
                             } else {
-                                self.OmegaSignaling.sendIceCandidate(
+                                OmegaSignalingInstance.sendIceCandidate(
                                     remoteUserId, 
                                     {
                                         type: 0, // data
@@ -1950,23 +2075,23 @@
                             }
 
                             // Remove the candidate from the queue so we don't accidentally resend it
-                            self.OmegaRTC.removeIceCandidate(remoteUserId, candidate);
+                            OmegaRTCInstance.removeIceCandidate(remoteUserId, candidate);
                         })
 
                         // Send final ICE candidates when done gathering
-                        self.OmegaRTC.onIceGatheringDone(remoteUserId, () => {
+                        OmegaRTCInstance.onIceGatheringDone(remoteUserId, () => {
                             
-                            self.OmegaRTC.iceCandidates[remoteUserId].forEach(async(candidate) => {
+                            OmegaRTCInstance.iceCandidates[remoteUserId].forEach(async(candidate) => {
 
                                 // Encrypt ICE candidate if public key is provided, otherwise send it unencrypted
                                 if (sharedKey) {
 
-                                    let {encryptedMessage, iv} = await self.OmegaEncryption.encryptMessage(
+                                    let {encryptedMessage, iv} = await OmegaEncryptionInstance.encryptMessage(
                                         JSON.stringify(candidate), 
                                         sharedKey,
                                     );
 
-                                    self.OmegaSignaling.sendIceCandidate(
+                                    OmegaSignalingInstance.sendIceCandidate(
                                         remoteUserId, 
                                         {
                                             type: 0, // data
@@ -1975,7 +2100,7 @@
                                     );
 
                                 } else {
-                                    self.OmegaSignaling.sendIceCandidate(
+                                    OmegaSignalingInstance.sendIceCandidate(
                                         remoteUserId, 
                                         {
                                             type: 0, // data
@@ -1985,7 +2110,7 @@
                                 }
 
                                 // Cleanup candidates queue
-                                self.OmegaRTC.removeIceCandidate(remoteUserId, candidate);
+                                OmegaRTCInstance.removeIceCandidate(remoteUserId, candidate);
                             })
                         })
                     })
@@ -1996,7 +2121,7 @@
         init_host_mode({LOBBY, PEERS, PASSWORD, CLAIMCONFIG}) {
             const self = this;
             return new Promise(async(resolve, reject) => {
-                if (!self.OmegaSignaling.socket) {
+                if (!OmegaSignalingInstance.socket) {
                     console.warn('Signaling server not connected');
                     reject();
                     return;
@@ -2017,21 +2142,21 @@
                         allow_peers_to_claim_host = true;
                         break;
                 }
-                self.OmegaSignaling.hostMode(
+                OmegaSignalingInstance.hostMode(
                     LOBBY,
                     allow_host_reclaim,
                     allow_peers_to_claim_host,
                     PEERS,
                     PASSWORD,
-                    await self.OmegaEncryption.exportPublicKey(),
+                    await OmegaEncryptionInstance.exportPublicKey(),
                     null
                 );
 
-                self.OmegaSignaling.onHostModeConfig(() => {
+                OmegaSignalingInstance.onHostModeConfig(() => {
                     resolve();
                 })
 
-                self.OmegaSignaling.onModeConfigFailure(() => {
+                OmegaSignalingInstance.onModeConfigFailure(() => {
                     reject();
                 })
             })
@@ -2040,131 +2165,134 @@
         init_peer_mode({LOBBY, PASSWORD}) {
             const self = this;
             return new Promise(async(resolve, reject) => {
-                if (!self.OmegaSignaling.socket) {
+                if (!OmegaSignalingInstance.socket) {
                     console.warn('Signaling server not connected');
                     reject();
                     return;
                 }
 
-                self.OmegaSignaling.peerMode(
+                OmegaSignalingInstance.peerMode(
                     LOBBY,
                     PASSWORD,
-                    await self.OmegaEncryption.exportPublicKey(),
+                    await OmegaEncryptionInstance.exportPublicKey(),
                     null,
                 );
 
-                self.OmegaSignaling.onPeerModeConfig(() => {
+                OmegaSignalingInstance.onPeerModeConfig(() => {
                     resolve();
                 })
 
-                self.OmegaSignaling.onModeConfigFailure(() => {
+                OmegaSignalingInstance.onModeConfigFailure(() => {
                     reject();
                 })
             })
         }
 
-        async send({DATA, PEER, CHANNEL, WAIT}) {
-            const self = this;
-            const sharedKey = self.OmegaEncryption.getSharedKey(PEER);
+        send({DATA, PEER, CHANNEL, WAIT}) {
+            // TODO: figure out a way to improve performance (this block, even if you tell it to not wait, it still takes time to send messages)
+            const sharedKey = OmegaEncryptionInstance.getSharedKey(PEER);
             if (sharedKey) {
-                const {encryptedMessage, iv} = await self.OmegaEncryption.encryptMessage(DATA, sharedKey);
-                DATA = [encryptedMessage, iv];
-            };
-            await self.OmegaRTC.sendData(
-                PEER,
-                CHANNEL,
-                "P_MSG",
-                DATA,
-                WAIT,
-            );
+                return new Promise(async(resolve) => {
+                    const {encryptedMessage, iv} = await OmegaEncryptionInstance.encryptMessage(DATA, sharedKey);
+                    DATA = [encryptedMessage, iv];
+                    OmegaRTCInstance.sendData(
+                        PEER,
+                        CHANNEL,
+                        "P_MSG",
+                        DATA,
+                        WAIT,
+                    );
+                    resolve();
+                })
+            }
+            else {
+                OmegaRTCInstance.sendData(
+                    PEER,
+                    CHANNEL,
+                    "P_MSG",
+                    DATA,
+                    WAIT,
+                );
+            }
         }
 
-        async broadcast({DATA, CHANNEL, WAIT}) {
-            const self = this;
-            let promises = [];
+        broadcast({DATA, CHANNEL, WAIT}) {
+            if (WAIT) {
+                let promises = [];
 
-            // Get all peers and prepare promises
-            for (const remotePeerId of Object.values(self.OmegaRTC.getPeers())) {
-                promises.push(
-                    self.OmegaRTC.sendData(
+                // Get all peers and prepare promises
+                for (const remotePeerId of Object.values(OmegaRTCInstance.getPeers())) {
+                    promises.push(
+                        OmegaRTCInstance.sendData(
+                            remotePeerId,
+                            CHANNEL,
+                            "G_MSG",
+                            DATA,
+                            true,
+                        )
+                    );
+                }
+            
+                // Send all messages
+                return Promise.all(promises);
+            }
+            else {
+
+                // Send and do not wait for messages to be sent
+                for (const remotePeerId of Object.values(OmegaRTCInstance.getPeers())) {
+                    OmegaRTCInstance.sendData(
                         remotePeerId,
                         CHANNEL,
                         "G_MSG",
                         DATA,
-                        WAIT,
-                    )
-                );
+                        false,
+                    );
+                }
             }
-            
-            // Send all messages
-            await Promise.all(promises);
         }
 
         disconnect_peer({PEER}) {
             const self = this;
-            self.OmegaRTC.disconnectDataPeer(PEER);
+            OmegaRTCInstance.disconnectDataPeer(PEER);
         }
 
         leave() {
             const self = this;
-            if (!self.OmegaSignaling.socket) {
+            if (!OmegaSignalingInstance.socket) {
                 return;
             }
             return new Promise((resolve) => {
-                self.OmegaSignaling.Disconnect();
-                self.OmegaSignaling.onClose("manual", () => {
+                OmegaSignalingInstance.Disconnect();
+                OmegaSignalingInstance.onClose("manual", () => {
                     resolve();
                 })
             })
         }
 
         is_signalling_connected() {
-            return (this.OmegaSignaling.socket && this.OmegaSignaling.socket.readyState === 1);
+            if (!OmegaSignalingInstance.socket) return false;
+            return (OmegaSignalingInstance.socket.readyState === 1);
         }
 
         my_ID() {
-            return this.OmegaSignaling.state.id;
-        }
-
-        my_SessionToken() {
-            return this.OmegaAuth.sessionToken;
+            return OmegaSignalingInstance.state.id;
         }
 
         my_Username() {
-            return this.OmegaSignaling.state.user;
+            return OmegaSignalingInstance.state.user;
         }
 
         get_peers() {
             const self = this;
-            return self.makeValueSafeForScratch(self.OmegaRTC.getPeers());
+            return self.makeValueSafeForScratch(OmegaRTCInstance.getPeers());
         }
 
-        async authenticateWithCredentials({ EMAIL, PASSWORD }) {
-            const self = this;
-            if (!self.OmegaSignaling.socket) {
+        authenticate({TOKEN}) {
+            if (!OmegaSignalingInstance.socket) {
                 console.warn('Signaling server not connected');
                 return;
             };
-            await self.OmegaAuth.Login(EMAIL, PASSWORD);
-            if (self.OmegaAuth.loginSuccess) {
-                self.OmegaSignaling.authenticateWithToken(self.OmegaAuth.sessionToken, null);
-            }
-        }
-
-        authenticateWithToken({TOKEN}) {
-            const self = this;
-            if (!self.OmegaSignaling.socket) {
-                console.warn('Signaling server not connected');
-                return;
-            };
-            self.OmegaAuth.sessionToken = TOKEN;
-            self.OmegaSignaling.authenticateWithToken(self.OmegaAuth.sessionToken, null);
-        }
-
-        async register({ EMAIL, USERNAME, PASSWORD }) {
-            const self = this;
-            await self.OmegaAuth.Register(EMAIL, USERNAME, PASSWORD);
-            return self.OmegaAuth.registerSuccess;
+            OmegaSignalingInstance.authenticateWithToken(TOKEN, null);
         }
 
         // Request microphone permission
@@ -2191,17 +2319,17 @@
             const self = this;
 
             // Check if peer exists
-            if (!self.OmegaRTC.doesPeerExist(PEER)) {
+            if (!OmegaRTCInstance.doesPeerExist(PEER)) {
                 console.warn(`Peer ${PEER} not found.`);
                 return;
             }
 
             // Get the current peer channel ID incrementer value and add 1
-            let channelIdCounter = self.OmegaRTC.peerConnections.get(PEER).channelIdCounter;
+            let channelIdCounter = OmegaRTCInstance.peerConnections.get(PEER).channelIdCounter;
             channelIdCounter += 1;
 
             // Send NEWCHAN to the peer over the default channel
-            self.OmegaRTC.sendData(
+            OmegaRTCInstance.sendData(
                 PEER,
                 "default",
                 "NEWCHAN",
@@ -2214,14 +2342,14 @@
             );
 
             // Create the channel on our end and wait for the peer to connect to it on their end
-            console.log(self.OmegaRTC.createChannel(PEER, CHANNEL, (ORDERED == 1), channelIdCounter));
+            console.log(OmegaRTCInstance.createChannel(PEER, CHANNEL, (ORDERED == 1), channelIdCounter));
         }
 
         new_vchan({PEER}) {
             const self = this;
 
             // Check if peer exists
-            if (!self.OmegaRTC.doesPeerExist(PEER)) {
+            if (!OmegaRTCInstance.doesPeerExist(PEER)) {
                 console.warn(`Peer ${PEER} not found.`);
                 return;
             }
@@ -2229,11 +2357,19 @@
             // self.WebRTC.openVoiceStream(PEER);
         }
 
+        change_mic_state({MICSTATE, PEER}) {
+            
+        }
+
+        is_peer_vchan_open({PEER}) {
+
+        }
+
         close_vchan({PEER}) {
             const self = this;
 
             // Check if peer exists
-            if (!self.OmegaRTC.doesPeerExist(PEER)) {
+            if (!OmegaRTCInstance.doesPeerExist(PEER)) {
                 console.warn(`Peer ${PEER} not found.`);
                 return;
             }
@@ -2249,27 +2385,27 @@
             }
 
             // Check if peer exists
-            if (!self.OmegaRTC.doesPeerExist(PEER)) {
+            if (!OmegaRTCInstance.doesPeerExist(PEER)) {
                 console.warn(`Peer ${PEER} not found.`);
                 return;
             }
 
-            if (!self.OmegaRTC.dataChannels.get(PEER).get(CHANNEL)) {
+            if (!OmegaRTCInstance.dataChannels.get(PEER).get(CHANNEL)) {
                 console.warn(`Channel ${CHANNEL} does not exist for peer ${PEER}`);
                 return;
             }
 
-            self.OmegaRTC.dataChannels.get(PEER).get(CHANNEL).close();
+            OmegaRTCInstance.dataChannels.get(PEER).get(CHANNEL).close();
         }
 
         get_peer_channels({PEER}) {
             const self = this;
-            return self.makeValueSafeForScratch(self.OmegaRTC.getPeerChannels(PEER));
+            return self.makeValueSafeForScratch(OmegaRTCInstance.getPeerChannels(PEER));
         }
 
         is_peer_connected({PEER}) {
             const self = this;
-            return self.OmegaRTC.doesPeerExist(PEER);
+            return OmegaRTCInstance.doesPeerExist(PEER);
         }
 
         get_global_channel_data({CHANNEL}) {
@@ -2280,19 +2416,67 @@
 
         get_private_channel_data({CHANNEL, PEER}) {
             const self = this;
-            if (!self.OmegaRTC.doesPeerExist(PEER)) return "";
-            if (!self.OmegaRTC.doesPeerChannelExist(PEER, CHANNEL)) return "";
+            if (!OmegaRTCInstance.doesPeerExist(PEER)) return "";
+            if (!OmegaRTCInstance.doesPeerChannelExist(PEER, CHANNEL)) return "";
             return self.makeValueSafeForScratch(
-                self.OmegaRTC.dataChannels.get(PEER).get(CHANNEL).dataStorage.get("P_MSG")
+                OmegaRTCInstance.dataChannels.get(PEER).get(CHANNEL).dataStorage.get("P_MSG")
             );
+        }
+
+        channel_data_store_in_variable({CHANNEL, PEER, VAR}) {
+        
+        }
+
+        get_client_mode() {
+            const self = this;
+            if (OmegaSignalingInstance.state.mode == 1) {
+                return "host";
+            } else if (OmegaSignalingInstance.state.mode == 2) {
+                return "peer";
+            } else return "";
+        }
+
+        make_networked_list({LIST, PEER, CHANNEL}) {
+
+        }
+
+        send_networked_list({LIST, CHANNEL, PEER, WAIT}) {
+
+        }
+
+        broadcast_networked_list({LIST, CHANNEL, WAIT}) {
+
+        }
+
+        on_channel_private_networked_list() {
+
+        }
+
+        on_channel_broadcast_networked_list() {
+
+        }
+
+        on_private_message({PEER, CHANNEL}) {
+
+        }
+
+        on_broadcast_message({CHANNEL}) {
+
+        }
+
+        get_new_peer() {
+
         }
     };
 
     /*
     Scratch.vm.runtime.on('BEFORE_EXECUTE', () => {
-        Scratch.vm.runtime.startHats('cloudlinkomega_on_dchan_message');
-        Scratch.vm.runtime.startHats('cloudlinkomega_on_channel_networked_list');
+        Scratch.vm.runtime.startHats('cl5_on_private_message');
+        Scratch.vm.runtime.startHats('cl5_on_broadcast_message');
+        Scratch.vm.runtime.startHats('cl5_on_channel_private_networked_list');
+        Scratch.vm.runtime.startHats('cl5_on_channel_broadcast_networked_list');
     });*/
 
     Scratch.extensions.register(new CloudLinkOmega(Scratch));
+    Scratch.extensions.register(new CloudLink5(Scratch));
 })(Scratch);
