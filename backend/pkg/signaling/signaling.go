@@ -109,7 +109,7 @@ func HandleICEOpcode(c *structs.Client, packet *structs.SignalPacket) {
 		return
 	}
 
-	// Relay the offer
+	// Relay the candidate
 	SendMessage(recipient, &structs.SignalPacket{
 		Opcode:  "ICE",
 		Payload: packet.Payload,
@@ -268,6 +268,16 @@ func HandleConfigPeerOpcode(c *structs.Client, packet *structs.SignalPacket, raw
 	}
 	c.PublicKey = rePacket.Payload.PublicKey
 
+	// Tell the peer to anticipate an incoming connection from the host
+	SendMessage(c, &structs.SignalPacket{
+		Opcode: "ANTICIPATE",
+		Payload: &structs.NewPeerParams{
+			ID:        hosts[0].ULID,
+			User:      hosts[0].Username,
+			PublicKey: hosts[0].PublicKey,
+		},
+	})
+
 	// Notify the host that a new peer has joined
 	SendMessage(hosts[0], &structs.SignalPacket{
 		Opcode: "NEW_PEER",
@@ -375,15 +385,20 @@ func HandleConfigHostOpcode(c *structs.Client, packet *structs.SignalPacket, raw
 
 	// Broadcast new host
 	log.Printf("[Signaling] Client %d is now a host in lobby %s and UGI %s", c.ID, rePacket.Payload.LobbyID, c.UGI)
-	BroadcastMessage(Manager.GetAllClientsWithoutLobby(c.UGI), &structs.SignalPacket{
-		Opcode: "NEW_HOST",
-		Payload: &structs.NewHostParams{
-			ID:        c.ULID,
-			User:      c.Username,
-			LobbyID:   c.Lobby,
-			PublicKey: rePacket.Payload.PublicKey,
-		},
-	})
+
+	// If the lobby has no password, broadcast the new host as a public lobby
+	if rePacket.Payload.Password == "" {
+		log.Printf("[Signaling] Lobby %s in UGI %s is a public lobby! Broadcasting this newly created public lobby.", rePacket.Payload.LobbyID, c.UGI)
+		BroadcastMessage(Manager.GetAllClientsWithoutLobby(c.UGI), &structs.SignalPacket{
+			Opcode: "NEW_HOST",
+			Payload: &structs.NewHostParams{
+				ID:        c.ULID,
+				User:      c.Username,
+				LobbyID:   c.Lobby,
+				PublicKey: rePacket.Payload.PublicKey,
+			},
+		})
+	}
 
 	// Tell the client the lobby has been created
 	SendCodeWithMessage(c, nil, "ACK_HOST", packet.Listener)
