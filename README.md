@@ -3,6 +3,9 @@
 # Introducing CLΩ. Powered by CL5.
 CLΩ is Scratch 3's most powerful multiplayer gaming network, powered by CL5.
 
+## 📣 Join the fun, and get up to date.
+Join our [Discord server](https://discord.gg/BZ7TWeMF75) for live updates, open lobbies, and more!
+
 ## CLΩ Features
 
 ![CLΩ Banner](https://github.com/MikeDev101/cloudlink-omega/assets/12957745/eb834a4e-c335-44f5-ad72-7350f6b0fff3)
