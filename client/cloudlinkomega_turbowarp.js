@@ -1,3 +1,5 @@
+// TODO: reimplement VM variable/list access: see old version https://github.com/MikeDev101/cloudlink-omega/blob/bde3426ce537c6adae0ca3da3d47db7473513902/client/cloudlinkomega_turbowarp.js
+
 (function (Scratch) {
     // Modify to point to server. (Set as localhost for testing)
     const rootApiURL = "https://omega.mikedev101.cc"
@@ -135,7 +137,6 @@
                     this.deriveSharedKey(pKey, this.keyPair.privateKey)
                     .then((sharedKey) => {
                         this.setSharedKey(remotePeerId, sharedKey);
-                        console.log(`Set derived shared key for ${remotePeerId}.`);
                         resolve();
                     })
                     .catch((error) => {
@@ -464,43 +465,38 @@
         }
     
         handleDataChannel(dataChannel, remoteUserId, remoteUserName) {
-            if (!this.dataChannels.has(remoteUserId)) {
-                const channel = dataChannel;
+            const channel = dataChannel;
 
-                // Create channel message storage
-                channel.dataStorage = new Map();
-                channel.dataStorage.set("G_MSG", new String());
-                // TODO: implement more stores as the protocol evolves.
+            // Create reference to channel
+            if (!this.dataChannels.has(remoteUserId)) this.dataChannels.set(remoteUserId, new Map());
 
-                // Create reference to channel
-                this.dataChannels.set(remoteUserId, new Map());
-    
-                channel.onmessage = (event) => {
-                    console.log(`Received message from ${remoteUserName} (${remoteUserId}) in channel ${channel.label}: ${event.data}`);
-                    if (this.messageHandlers.onChannelMessage[remoteUserId]) {
-                        this.messageHandlers.onChannelMessage[remoteUserId](event.data, channel);
-                    }
-                };
-    
-                channel.onopen = () => {
-                    console.log(`Data channel ${channel.label} with ${remoteUserName} (${remoteUserId}) opened`);
-                    if (this.messageHandlers.onChannelOpen[remoteUserId]) {
-                        this.messageHandlers.onChannelOpen[remoteUserId](channel.label);
-                    }
-                };
-    
-                channel.onclose = () => {
-                    console.log(`Data channel ${channel.label} with ${remoteUserName} (${remoteUserId}) closed`);
-                    if (channel.label == "default") {
-                        this.disconnectDataPeer(remoteUserId);
-                    } else {
-                        this.dataChannels.get(remoteUserId).delete(channel.label);
-                    }
-                };
-                
-                // Store reference to channel
-                this.dataChannels.get(remoteUserId).set(channel.label, channel);
-            }
+            // Create channel message storage
+            channel.dataStorage = new Map();
+
+            channel.onmessage = (event) => {
+                if (this.messageHandlers.onChannelMessage[remoteUserId]) {
+                    this.messageHandlers.onChannelMessage[remoteUserId](event.data, channel);
+                }
+            };
+
+            channel.onopen = () => {
+                console.log(`Data channel ${channel.label} with ${remoteUserName} (${remoteUserId}) opened`);
+                if (this.messageHandlers.onChannelOpen[remoteUserId]) {
+                    this.messageHandlers.onChannelOpen[remoteUserId](channel.label);
+                }
+            };
+
+            channel.onclose = () => {
+                console.log(`Data channel ${channel.label} with ${remoteUserName} (${remoteUserId}) closed`);
+                if (channel.label == "default") {
+                    this.disconnectDataPeer(remoteUserId);
+                } else {
+                    this.dataChannels.get(remoteUserId).delete(channel.label);
+                }
+            };
+            
+            // Store reference to channel
+            this.dataChannels.get(remoteUserId).set(channel.label, channel);
         }
 
         handleVoiceStream(voiceConnection, remoteUserId, remoteUserName) {
@@ -550,7 +546,7 @@
 
         createDefaultChannel(peerConnection, remoteUserId, remoteUserName) {
             const dataChannel = peerConnection.createDataChannel(
-                'default',
+                "default",
                 { negotiated: true, id: 0, ordered: true, protocol: 'clomega' }
             );
             this.handleDataChannel(dataChannel, remoteUserId, remoteUserName);
@@ -560,6 +556,7 @@
         disconnectDataPeer(remoteUserId) {
             const peerConnection = this.peerConnections.get(remoteUserId);
             if (peerConnection) {
+                const remoteUserName = peerConnection.user;
                 peerConnection.close();
 
                 // Delete the peerConnection and all ICE candidates gathered
@@ -575,7 +572,7 @@
                     this.dataChannels.delete(remoteUserId);
                 }
     
-                console.log(`Disconnected peer ${remoteUserId} gracefully.`);
+                console.log(`Disconnected peer ${remoteUserName} (${remoteUserId}).`);
             }
         }
     
@@ -599,12 +596,11 @@
             this.messageHandlers.onChannelMessage[remoteUserId] = callback;
         }
 
-        sendData(remoteUserId, channelLabel, opcode, payload, origin, wait, recipient) {
+        sendData(remoteUserId, channelLabel, opcode, payload, wait) {
             // Get peer.
             const peer = this.dataChannels.get(remoteUserId);
 
             if (!peer) {
-                console.warn(`Peer ${remoteUserId} not found`);
                 return;
             }
 
@@ -612,18 +608,15 @@
             const channel = peer.get(channelLabel);
 
             if (!channel) {
-                console.warn(`Channel ${channelLabel} not found for peer ${remoteUserId}`);
                 return;
             }
 
             if (wait) channel.bufferedAmountThreshold = 0; 
-            
+
             channel.send(JSON.stringify({
                 opcode,
                 payload,
-                origin,
-                recipient,
-            }))
+            }));
 
             if (wait) return new Promise((resolve) => {
                 channel.onbufferedamountlow = () => {
@@ -786,8 +779,14 @@
                     if (this.messageHandlers.onModeConfigFailure) this.messageHandlers.onModeConfigFailure(opcode);
                     break;
                 case "LOBBY_CLOSE":
-                    console.log("Lobby closed. Disconnecting...");
-                    this.Disconnect();
+                    console.log(`Lobby ${payload} closed.`);
+
+                    // If we are a host/peer, we are required to disconnect.
+                    if (this.state.mode == 1 || this.state.mode == 2) {
+                        console.log("Disconnecting from lobby..");
+                        this.Disconnect();
+                    }
+
                     break;
                 case "HOST_GONE":
                     console.log("The host has left.");
@@ -970,13 +969,10 @@
             this.OmegaAuth = new OmegaAuth();
             this.OmegaEncryption = new OmegaEncryption();
 
+            this.globalChannelMessages = new Map();
+
             // Generate this peer's public / private key pair
-            this.OmegaEncryption.generateKeyPair().then((keyPair) => {
-                console.log(`Generated key pair:`, keyPair);
-                this.OmegaEncryption.exportPublicKey().then((key) => {
-                    console.log(`Public key:`, key);
-                });
-            });
+            this.OmegaEncryption.generateKeyPair();
             
             // Define icons
             this.blockIconURI =
@@ -1186,7 +1182,7 @@
                     {
                         opcode: 'send',
                         blockType: 'command',
-                        text: 'Send data [DATA] to peer [PEER] using channel [CHANNEL] and wait for message to finish sending? [WAIT]',
+                        text: 'Send private data [DATA] to peer [PEER] using channel [CHANNEL] and wait for message to finish sending? [WAIT]',
                         arguments: {
                             DATA: {
                                 type: 'string',
@@ -1195,6 +1191,25 @@
                             PEER: {
                                 type: 'string',
                                 defaultValue: 'ID',
+                            },
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'default',
+                            },
+                            WAIT: {
+                                type: 'Boolean',
+                                defaultValue: false,
+                            },
+                        }
+                    },
+                    {
+                        opcode: 'broadcast',
+                        blockType: 'command',
+                        text: 'Broadcast global data [DATA] to all peers using channel [CHANNEL] and wait for broadcast to finish sending? [WAIT]',
+                        arguments: {
+                            DATA: {
+                                type: 'string',
+                                defaultValue: 'Hello',
                             },
                             CHANNEL: {
                                 type: 'string',
@@ -1225,10 +1240,22 @@
                             },
                         },
                     },
+                    "---",
                     {
-                        opcode: "get_channel_data",
+                        opcode: "get_global_channel_data",
                         blockType: "reporter",
-                        text: "Channel [CHANNEL] data from peer [PEER]",
+                        text: "Global channel [CHANNEL] data",
+                        arguments: {
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'default',
+                            },
+                        },
+                    },
+                    {
+                        opcode: "get_private_channel_data",
+                        blockType: "reporter",
+                        text: "Private channel [CHANNEL] data from peer [PEER]",
                         arguments: {
                             CHANNEL: {
                                 type: 'string',
@@ -1237,7 +1264,7 @@
                             PEER: {
                                 type: 'string',
                                 defaultValue: 'ID',
-                            },
+                            }
                         },
                     },
                     "---",
@@ -1488,7 +1515,7 @@
         async clOmegaProtocolMessageHandler(remotePeerId, channel, message) {
             // Declare variables
             const self = this;
-            let packet;
+            let packet, sharedKey;
             
             // Parse message
             try {
@@ -1497,15 +1524,26 @@
                 console.error(`Error parsing message ${message}: ${error}`);
                 return;
             }
+
+            // Remove later (logging to console slows things down)
             console.log(`Received message from ${remotePeerId} in channel ${channel.label}: ${message}`);
 
             // Parse packet
-            const {opcode, payload, origin, recipient} = packet;
+            const opcode = packet.opcode;
+            let payload = packet.payload;
             
             // Process packet
             switch (opcode) {
+                case "NEWCHAN": // Open a new data channel with custom settings
+                    // Synchronize our channel ID counter
+                    self.OmegaRTC.peerConnections.get(remotePeerId).channelIdCounter = payload.id;
+
+                    // Create channel
+                    console.log(self.OmegaRTC.createChannel(remotePeerId, payload.name, payload.ordered, payload.id));
+                    break;
+                
                 case "G_MSG": // Global insecure message
-                    channel.dataStorage.set("G_MSG", payload);
+                    self.globalChannelMessages.set(channel.label, payload);
                     break;
                 
                 case "G_VAR": // Global insecure variable
@@ -1515,6 +1553,9 @@
                     break;
                 
                 case "P_MSG": // Private secure message
+                    sharedKey = await self.OmegaEncryption.getSharedKey(remotePeerId);
+                    if (sharedKey) payload = await self.OmegaEncryption.decryptMessage(payload[0], payload[1], sharedKey);
+                    channel.dataStorage.set("P_MSG", payload);
                     break;
                 
                 case "P_VAR": // Private secure variable
@@ -1530,15 +1571,6 @@
                     break;
                 
                 case "HANGUP": // Reject voice channel request / close voice channel
-                    break;
-                
-                case "V_OFFER": // Voice channel SDP offer
-                    break;
-                
-                case "V_ANSWER": // Voice channel SDP answer
-                    break;
-                
-                case "V_ICE": // Voice channel ICE
                     break;
             }
         }
@@ -1562,7 +1594,6 @@
                         console.log('Disconnected from signaling server.');
 
                         // To be compliant with the protocol, we must close all peer connections.
-                        console.log(`There are ${self.OmegaRTC.peerConnections.size} peer connections to close.`);
                         Array.from(self.OmegaRTC.peerConnections.keys()).forEach((peer) => {
                             self.OmegaRTC.disconnectDataPeer(peer);
                         })
@@ -1577,8 +1608,6 @@
                         const remoteUserId = message.payload.id;
                         const pubKey = message.payload.pubkey;
 
-                        console.log(`Anticipating new connection ${remoteUserName} (${remoteUserId})`);
-
                         // Create handler for PEER_GONE
                         self.OmegaSignaling.onPeerGone(remoteUserId, () => {
                             self.OmegaRTC.disconnectDataPeer(remoteUserId);
@@ -1586,7 +1615,6 @@
 
                         // Setup shared secret from public key (if provided)
                         if (pubKey) {
-                            console.log(`Peer ${remoteUserName} (${remoteUserId}) supports encryption.`);
                             await self.OmegaEncryption.setSharedKeyFromPublicKey(remoteUserId, pubKey);
                         }
                     })
@@ -1598,8 +1626,6 @@
                         const pubKey = message.payload.pubkey;
                         let sharedKey;
 
-                        console.log(`Server advertising new peer ${remoteUserName} (${remoteUserId})`);
-
                         // Create handler for PEER_GONE
                         self.OmegaSignaling.onPeerGone(remoteUserId, () => {
                             self.OmegaRTC.disconnectDataPeer(remoteUserId);
@@ -1607,7 +1633,6 @@
 
                         // Setup shared secret from public key (if provided)
                         if (pubKey) {
-                            console.log(`Peer ${remoteUserName} (${remoteUserId}) supports encryption.`);
                             await self.OmegaEncryption.setSharedKeyFromPublicKey(remoteUserId, pubKey);
                             sharedKey = await self.OmegaEncryption.getSharedKey(remoteUserId);
                         }
@@ -1650,8 +1675,6 @@
                         const pubKey = message.payload.pubkey;
                         let sharedKey;
 
-                        console.log(`New peer ${remoteUserName} (${remoteUserId}) incoming connection.`);
-
                         // Create handler for PEER_GONE
                         self.OmegaSignaling.onPeerGone(remoteUserId, () => {
                             self.OmegaRTC.disconnectDataPeer(remoteUserId);
@@ -1659,7 +1682,6 @@
 
                         // Setup shared secret from public key (if provided)
                         if (pubKey) {
-                            console.log(`Peer ${remoteUserName} (${remoteUserId}) supports encryption.`);
                             await self.OmegaEncryption.setSharedKeyFromPublicKey(remoteUserId, pubKey);
                             sharedKey = await self.OmegaEncryption.getSharedKey(remoteUserId);
                         }
@@ -1711,7 +1733,6 @@
 
                         // Setup shared secret from public key (if provided)
                         if (pubKey) {
-                            console.log(`Host ${remoteUserName} (${remoteUserId}) supports encryption.`);
                             await self.OmegaEncryption.setSharedKeyFromPublicKey(remoteUserId, pubKey);
                         }
                     })
@@ -1749,9 +1770,7 @@
                         const sharedKey = await self.OmegaEncryption.getSharedKey(remoteUserId);
                         let answer;
                         let offer = message.payload.contents;
-                        let type = message.payload.type;
-
-                        console.log(`Offer received from ${remoteUserName} (${remoteUserId})`);        
+                        let type = message.payload.type;   
 
                         // Decrypt offer
                         if (sharedKey) {
@@ -1796,6 +1815,11 @@
                             );
 
                         }
+
+                        // Begin handling incoming messages
+                        self.OmegaRTC.onChannelMessage(remoteUserId, async(message, channel) => {
+                            await self.clOmegaProtocolMessageHandler(remoteUserId, channel, message);
+                        })
 
                         // Send Trickle ICE candidates
                         self.OmegaRTC.onIceCandidate(remoteUserId, async(candidate) => {
@@ -1869,13 +1893,10 @@
 
                     // Handle answers
                     self.OmegaSignaling.onAnswer(async(message) => {
-                        const remoteUserName = message.origin.user;
                         const remoteUserId = message.origin.id;
                         const sharedKey = await self.OmegaEncryption.getSharedKey(remoteUserId);
                         let type = message.payload.type;
                         let answer = message.payload.contents;
-
-                        console.log(`Answer received from ${remoteUserName} (${remoteUserId})`);
 
                         // Decrypt answer
                         if (sharedKey) {
@@ -1893,6 +1914,11 @@
                                 await self.OmegaRTC.handleVoiceAnswer(remoteUserId, answer);
                                 break;
                         }
+
+                        // Begin handling incoming messages
+                        self.OmegaRTC.onChannelMessage(remoteUserId, async(message, channel) => {
+                            await self.clOmegaProtocolMessageHandler(remoteUserId, channel, message);
+                        })
 
                         // Send Trickle ICE candidates
                         self.OmegaRTC.onIceCandidate(remoteUserId, async(candidate) => {
@@ -2037,20 +2063,41 @@
             })
         }
 
-        send({DATA, PEER, CHANNEL, WAIT}) {
+        async send({DATA, PEER, CHANNEL, WAIT}) {
             const self = this;
-            self.OmegaRTC.sendData(
+            const sharedKey = self.OmegaEncryption.getSharedKey(PEER);
+            if (sharedKey) {
+                const {encryptedMessage, iv} = await self.OmegaEncryption.encryptMessage(DATA, sharedKey);
+                DATA = [encryptedMessage, iv];
+            };
+            await self.OmegaRTC.sendData(
                 PEER,
                 CHANNEL,
-                "G_MSG",
+                "P_MSG",
                 DATA,
-                {
-                    id: self.OmegaSignaling.state.id,
-                    name: self.OmegaSignaling.state.name,
-                },
                 WAIT,
-                null
             );
+        }
+
+        async broadcast({DATA, CHANNEL, WAIT}) {
+            const self = this;
+            let promises = [];
+
+            // Get all peers and prepare promises
+            for (const remotePeerId of Object.values(self.OmegaRTC.getPeers())) {
+                promises.push(
+                    self.OmegaRTC.sendData(
+                        remotePeerId,
+                        CHANNEL,
+                        "G_MSG",
+                        DATA,
+                        WAIT,
+                    )
+                );
+            }
+            
+            // Send all messages
+            await Promise.all(promises);
         }
 
         disconnect_peer({PEER}) {
@@ -2072,10 +2119,7 @@
         }
 
         is_signalling_connected() {
-            if (!this.OmegaSignaling.socket) {
-                return false;
-            }
-            return (this.OmegaSignaling.socket.readyState === 1);
+            return (this.OmegaSignaling.socket && this.OmegaSignaling.socket.readyState === 1);
         }
 
         my_ID() {
@@ -2151,7 +2195,26 @@
                 console.warn(`Peer ${PEER} not found.`);
                 return;
             }
-            self.OmegaRTC.createChannel(PEER, CHANNEL, (ORDERED == 1));
+
+            // Get the current peer channel ID incrementer value and add 1
+            let channelIdCounter = self.OmegaRTC.peerConnections.get(PEER).channelIdCounter;
+            channelIdCounter += 1;
+
+            // Send NEWCHAN to the peer over the default channel
+            self.OmegaRTC.sendData(
+                PEER,
+                "default",
+                "NEWCHAN",
+                {
+                    name: CHANNEL,
+                    ordered: (ORDERED == 1),
+                    id: channelIdCounter,
+                },
+                true,
+            );
+
+            // Create the channel on our end and wait for the peer to connect to it on their end
+            console.log(self.OmegaRTC.createChannel(PEER, CHANNEL, (ORDERED == 1), channelIdCounter));
         }
 
         new_vchan({PEER}) {
@@ -2178,7 +2241,6 @@
             // self.WebRTC.closeVoiceStream(PEER);
         }
         
-
         close_dchan({CHANNEL, PEER}) {
             const self = this;
             if (CHANNEL == "default") {
@@ -2210,9 +2272,19 @@
             return self.OmegaRTC.doesPeerExist(PEER);
         }
 
-        get_channel_data({CHANNEL, PEER}) {
+        get_global_channel_data({CHANNEL}) {
             const self = this;
-            return self.makeValueSafeForScratch(self.OmegaRTC.getChannelData(PEER, CHANNEL, "G_MSG"));
+            if (!self.globalChannelMessages.has(CHANNEL)) return "";
+            return self.makeValueSafeForScratch(self.globalChannelMessages.get(CHANNEL));
+        }
+
+        get_private_channel_data({CHANNEL, PEER}) {
+            const self = this;
+            if (!self.OmegaRTC.doesPeerExist(PEER)) return "";
+            if (!self.OmegaRTC.doesPeerChannelExist(PEER, CHANNEL)) return "";
+            return self.makeValueSafeForScratch(
+                self.OmegaRTC.dataChannels.get(PEER).get(CHANNEL).dataStorage.get("P_MSG")
+            );
         }
     };
 
