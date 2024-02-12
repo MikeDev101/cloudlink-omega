@@ -699,7 +699,6 @@
                 this.state.mode = 0;
                 this.state.authenticated = false;
                 this.socket = null;
-                myPeerId = "";
 
                 // Stop keepalive.
                 clearTimeout(this.keepalive);
@@ -729,7 +728,6 @@
             switch (opcode) {
                 case 'INIT_OK':
                     console.log('Signaling login successful.');
-                    myPeerId = payload.id;
                     this.state.user = payload.user;
                     this.state.id = payload.id;
                     this.state.game = payload.game;
