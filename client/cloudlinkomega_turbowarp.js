@@ -266,18 +266,18 @@
 
         async createVoiceOffer(remoteUserId, remoteUserName) {
             const voiceConnection = this.createConnection(remoteUserId, remoteUserName, true);
-            this.handleVoiceStream(voiceConnection, remoteUserId, remoteUserName);
+            await this.handleVoiceStream(voiceConnection, remoteUserId, remoteUserName);
             try {
                 const offer = await voiceConnection.createOffer();
                 await voiceConnection.setLocalDescription(offer);
-                return { offer, dataChannel };
+                return offer;
             } catch (error) {
                 console.error(`Error creating voice offer for ${voiceConnection.user} (${remoteUserId}): ${error}`);
                 return null;
             }
         }
 
-        async createVoiceAnswer(remoteUserId, remoteUserName) {
+        async createVoiceAnswer(remoteUserId, remoteUserName, offer) {
             const voiceConnection = this.createConnection(remoteUserId, remoteUserName, true);
             await this.handleVoiceStream(voiceConnection, remoteUserId, remoteUserName);
             try {
@@ -445,16 +445,18 @@
             if (isAudioOnly) {
                 // Handle incoming tracks
                 conn.ontrack = (event) => {
-                    console.log(`Adding peer ${remoteUserId} audio stream...`);
+                    console.log(`Adding peer ${remoteUserId} audio stream... ${event.streams}`);
 
                     // Auto-play the received audio stream
-                    let audioElement = document.createElement(`audio_${remoteUserId}`);
-                    audioElement.id = `audio_${remoteUserId}`;
-                    audioElement.srcObject = event.streams[0];
-                    audioElement.autoplay = true;
+                    for (const stream of event.streams) {
+                        let audioElement = document.createElement(`audio`);
+                        audioElement.id = `audio_${remoteUserId}`;
+                        audioElement.srcObject = stream;
+                        audioElement.autoplay = true;
 
-                    // Optional: Attach audio element to DOM for remote playback
-                    document.body.appendChild(audioElement);
+                        // Attach audio element to DOM for remote playback
+                        document.body.appendChild(audioElement);
+                    }
                 };
             }
             
@@ -499,11 +501,11 @@
             this.dataChannels.get(remoteUserId).set(channel.label, channel);
         }
 
-        handleVoiceStream(voiceConnection, remoteUserId, remoteUserName) {
+        async handleVoiceStream(voiceConnection, remoteUserId, remoteUserName) {
             // Create a new audio track
             console.log(`Preparing to open voice stream channel with ${remoteUserName} (${remoteUserId})...`);
 
-            navigator.mediaDevices.getUserMedia({ audio: true })
+            await navigator.mediaDevices.getUserMedia({ audio: true })
             .then(stream => {
                 stream.getTracks().forEach(track => {
                     console.log("Adding track:", track, `to peer ${remoteUserName} (${remoteUserId})...`);
@@ -671,6 +673,7 @@
                 game: "", // game name
                 developer: "", // developer name
                 mode: 0, // 0 - configuring, 1 - host, 2 - peer
+                authenticated: false,
             };
         }
 
@@ -694,7 +697,9 @@
                 this.state.developer = "";
                 this.state.game = "";
                 this.state.mode = 0;
+                this.state.authenticated = false;
                 this.socket = null;
+                myPeerId = "";
 
                 // Stop keepalive.
                 clearTimeout(this.keepalive);
@@ -724,10 +729,12 @@
             switch (opcode) {
                 case 'INIT_OK':
                     console.log('Signaling login successful.');
+                    myPeerId = payload.id;
                     this.state.user = payload.user;
                     this.state.id = payload.id;
                     this.state.game = payload.game;
                     this.state.developer = payload.developer;
+                    this.state.authenticated = true;
                     if (this.messageHandlers.onInitSuccess) this.messageHandlers.onInitSuccess();
                     break;
                 case "ACK_HOST":
@@ -1094,6 +1101,7 @@
             this.globalDataStorage = new Map();
             this.globalVariableStorage = new Map();
             this.globalListStorage = new Map();
+            this.newestPeerConnected = new String();
             
             // Define icons
             this.blockIconURI = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTc3IiBoZWlnaHQ9IjEyMyIgdmlld0JveD0iMCAwIDE3NyAxMjMiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxnIGNsaXAtcGF0aD0idXJsKCNjbGlwMF8xXzE5KSI+CjxwYXRoIGZpbGwtcnVsZT0iZXZlbm9kZCIgY2xpcC1ydWxlPSJldmVub2RkIiBkPSJNMTM0LjMyIDM4LjUxMjlDMTU3LjU2MSAzOC41MTI5IDE3Ni4zOTkgNTcuMzUyMyAxNzYuMzk5IDgwLjU5MThDMTc2LjM5OSAxMDMuODMxIDE1Ny41NjEgMTIyLjY3MSAxMzQuMzIgMTIyLjY3MUg0Mi4wNzg5QzE4LjgzOCAxMjIuNjcxIDAgMTAzLjgzMSAwIDgwLjU5MThDMCA1Ny4zNTIzIDE4LjgzOCAzOC41MTI5IDQyLjA3ODkgMzguNTEyOUg0Ni4yNjc4QzQ4LjA3OTMgMTYuOTQyMyA2Ni4xNjEzIDAgODguMTk5MyAwQzExMC4yMzcgMCAxMjguMzE5IDE2Ljk0MjMgMTMwLjEzMSAzOC41MTI5SDEzNC4zMloiIGZpbGw9IndoaXRlIi8+CjxwYXRoIGQ9Ik04Ny40MTk4IDEwNS4zMzNDODIuOTM3OCAxMDUuMzMzIDc4Ljc4NzggMTA0LjQ3NSA3NC45Njk4IDEwMi43NkM3MS4xNTE4IDEwMC45ODkgNjcuOTQyNSA5OC42NjUgNjUuMzQxOCA5NS43ODc3TDcxLjg5ODggODcuNTcwNkM3NC4yNzgyIDg5LjgzOTMgNzYuNzQwNSA5MS41ODIzIDc5LjI4NTggOTIuNzk5NkM4MS44ODY1IDk0LjAxNyA4NC40ODcyIDk0LjYyNTYgODcuMDg3OCA5NC42MjU2Qzg5LjUyMjUgOTQuNjI1NiA5MS42ODA1IDk0LjIzODMgOTMuNTYxOCA5My40NjM2Qzk1LjQ0MzIgOTIuNjMzNiA5Ni44ODE4IDkxLjQ5OTMgOTcuODc3OCA5MC4wNjA2Qzk4LjkyOTIgODguNTY2NiA5OS40NTQ4IDg2LjgyMzYgOTkuNDU0OCA4NC44MzE2Qzk5LjQ1NDggODIuOTUwMyA5OC45MjkyIDgxLjI5MDMgOTcuODc3OCA3OS44NTE2Qzk2LjgyNjUgNzguNDEzIDk1LjM4NzggNzcuMjc4NiA5My41NjE4IDc2LjQ0ODZDOTEuNzM1OCA3NS42MTg2IDg5LjY4ODUgNzUuMjAzNiA4Ny40MTk4IDc1LjIwMzZDODUuMzE3MiA3NS4yMDM2IDgzLjQzNTggNzUuMzk3MyA4MS43NzU4IDc1Ljc4NDZDODAuMTE1OCA3Ni4xNzIgNzguNjIxOCA3Ni42NDIzIDc3LjI5MzggNzcuMTk1NkM3NS45NjU4IDc3LjY5MzYgNzQuNzc2MiA3OC4yNDcgNzMuNzI0OCA3OC44NTU2TDY4LjA4MDggNzEuNjM0Nkw3MS42NDk4IDQ2LjMxOTZIMTA2LjUxVjU3LjAyNjZINzcuOTU3OEw4MC45NDU4IDUzLjM3NDZMNzguMjA2OCA3MS44MDA2TDc0LjMwNTggNjkuODkxNkM3NS4yNDY1IDY5LjExNyA3Ni41NDY4IDY4LjM5NzYgNzguMjA2OCA2Ny43MzM2Qzc5Ljg2NjggNjcuMDY5NiA4MS43MjA1IDY2LjUxNjMgODMuNzY3OCA2Ni4wNzM2Qzg1LjgxNTIgNjUuNjMxIDg3LjgzNDggNjUuNDA5NiA4OS44MjY4IDY1LjQwOTZDOTMuNzAwMiA2NS40MDk2IDk3LjI0MTUgNjYuMjM5NiAxMDAuNDUxIDY3Ljg5OTZDMTAzLjY2IDY5LjUwNDMgMTA2LjIzMyA3MS43NzMgMTA4LjE3IDc0LjcwNTZDMTEwLjEwNiA3Ny42MzgzIDExMS4wNzUgODEuMDY5IDExMS4wNzUgODQuOTk3NkMxMTEuMDc1IDg4LjgxNTYgMTEwLjAyMyA5Mi4yNzQgMTA3LjkyMSA5NS4zNzI3QzEwNS44MTggOTguNDE2IDEwMi45NjggMTAwLjg1MSA5OS4zNzE4IDEwMi42NzdDOTUuODMwNSAxMDQuNDQ3IDkxLjg0NjUgMTA1LjMzMyA4Ny40MTk4IDEwNS4zMzNaIiBmaWxsPSIjMEZCRDhDIi8+CjwvZz4KPGRlZnM+CjxjbGlwUGF0aCBpZD0iY2xpcDBfMV8xOSI+CjxyZWN0IHdpZHRoPSIxNzYuMzk5IiBoZWlnaHQ9IjEyMi42NzEiIGZpbGw9IndoaXRlIi8+CjwvY2xpcFBhdGg+CjwvZGVmcz4KPC9zdmc+Cg==";
@@ -1121,6 +1129,12 @@
                         isEdgeActivated: false,
                     },
                     {
+                        opcode: "on_signalling_disconnect",
+                        blockType: "event",
+                        text: "When I am disconnected from signaling server",
+                        isEdgeActivated: false,
+                    },
+                    {
                         opcode: 'initialize',
                         blockType: 'command',
                         text: 'Connect to signaling server [SERVER]',
@@ -1137,6 +1151,12 @@
                         text: "Disconnect from signaling server",
                     },
                     {
+                        opcode: 'is_signalling_connected',
+                        blockType: 'Boolean',
+                        text: 'Connected to signaling server?',
+                    },
+                    "---",
+                    {
                         opcode: 'authenticate',
                         blockType: 'command',
                         text: 'Authenticate with token [TOKEN]',
@@ -1148,9 +1168,9 @@
                         }
                     },
                     {
-                        opcode: 'is_signalling_connected',
+                        opcode: 'is_signaling_auth_success',
                         blockType: 'Boolean',
-                        text: 'Connected to signaling server?',
+                        text: 'Authenticated successfully?',
                     },
                     "---",
                     {
@@ -1197,6 +1217,42 @@
                         blockType: "command",
                         text: "Close connection with peer [PEER]",
                         arguments: {
+                            PEER: {
+                                type: 'string',
+                                defaultValue: 'ID',
+                            },
+                        },
+                    },
+                    "---",
+                    {
+                        opcode: 'new_dchan',
+                        blockType: 'command',
+                        text: 'Open a new data channel named [CHANNEL] with peer [PEER] and prefer [ORDERED]',
+                        arguments: {
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'foobar',
+                            },
+                            PEER: {
+                                type: 'string',
+                                defaultValue: 'ID',
+                            },
+                            ORDERED: {
+                                type: 'number',
+                                menu: 'channelConfig',
+                                defaultValue: "1",
+                            },
+                        },
+                    },
+                    {
+                        opcode: 'close_dchan',
+                        blockType: 'command',
+                        text: 'Close data channel named [CHANNEL] with peer [PEER]',
+                        arguments: {
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'foobar',
+                            },
                             PEER: {
                                 type: 'string',
                                 defaultValue: 'ID',
@@ -1274,6 +1330,37 @@
                         },
                     },
                     {
+                        opcode: "get_global_channel_data",
+                        blockType: "reporter",
+                        text: "Global channel [CHANNEL] data",
+                        arguments: {
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'default',
+                            },
+                        },
+                    },
+                    {
+                        opcode: 'broadcast',
+                        blockType: 'command',
+                        text: 'Broadcast global data [DATA] to all peers using channel [CHANNEL] and wait for broadcast to finish sending? [WAIT]',
+                        arguments: {
+                            DATA: {
+                                type: 'string',
+                                defaultValue: 'Hello',
+                            },
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'default',
+                            },
+                            WAIT: {
+                                type: 'Boolean',
+                                defaultValue: false,
+                            },
+                        }
+                    },
+                    "---",
+                    {
                         opcode: "on_private_message",
                         blockType: "hat",
                         text: "When I get a private message from peer [PEER] in channel [CHANNEL]",
@@ -1290,6 +1377,21 @@
                         },
                     },
                     {
+                        opcode: "get_private_channel_data",
+                        blockType: "reporter",
+                        text: "Private channel [CHANNEL] data from peer [PEER]",
+                        arguments: {
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'default',
+                            },
+                            PEER: {
+                                type: 'string',
+                                defaultValue: 'ID',
+                            }
+                        },
+                    },
+                    {
                         opcode: 'send',
                         blockType: 'command',
                         text: 'Send private data [DATA] to peer [PEER] using channel [CHANNEL] and wait for message to finish sending? [WAIT]',
@@ -1301,25 +1403,6 @@
                             PEER: {
                                 type: 'string',
                                 defaultValue: 'ID',
-                            },
-                            CHANNEL: {
-                                type: 'string',
-                                defaultValue: 'default',
-                            },
-                            WAIT: {
-                                type: 'Boolean',
-                                defaultValue: false,
-                            },
-                        }
-                    },
-                    {
-                        opcode: 'broadcast',
-                        blockType: 'command',
-                        text: 'Broadcast global data [DATA] to all peers using channel [CHANNEL] and wait for broadcast to finish sending? [WAIT]',
-                        arguments: {
-                            DATA: {
-                                type: 'string',
-                                defaultValue: 'Hello',
                             },
                             CHANNEL: {
                                 type: 'string',
@@ -1352,33 +1435,6 @@
                     },
                     "---",
                     {
-                        opcode: "get_global_channel_data",
-                        blockType: "reporter",
-                        text: "Global channel [CHANNEL] data",
-                        arguments: {
-                            CHANNEL: {
-                                type: 'string',
-                                defaultValue: 'default',
-                            },
-                        },
-                    },
-                    {
-                        opcode: "get_private_channel_data",
-                        blockType: "reporter",
-                        text: "Private channel [CHANNEL] data from peer [PEER]",
-                        arguments: {
-                            CHANNEL: {
-                                type: 'string',
-                                defaultValue: 'default',
-                            },
-                            PEER: {
-                                type: 'string',
-                                defaultValue: 'ID',
-                            }
-                        },
-                    },
-                    "---",
-                    {
                         opcode: "on_channel_broadcast_networked_list",
                         blockType: "hat",
                         text: "When I get a broadcasted networked list named [LISTNAME] in channel [CHANNEL]",
@@ -1387,25 +1443,6 @@
                             LISTNAME: {
                                 type: 'string',
                                 defaultValue: 'my public cloud list',
-                            },
-                            CHANNEL: {
-                                type: 'string',
-                                defaultValue: 'default',
-                            },
-                        },
-                    },
-                    {
-                        opcode: "make_broadcast_networked_list",
-                        blockType: "command",
-                        text: "Make list [LIST] a broadcastable networked list named [LISTNAME] in channel [CHANNEL]",
-                        arguments: {
-                            LIST: {
-                                type: 'string',
-                                defaultValue: 'my list',
-                            },
-                            LISTNAME: {
-                                type: 'string',
-                                defaultValue: 'public cloud list',
                             },
                             CHANNEL: {
                                 type: 'string',
@@ -1432,6 +1469,25 @@
                             },
                         },
                     },
+                    {
+                        opcode: "make_broadcast_networked_list",
+                        blockType: "command",
+                        text: "Make list [LIST] a broadcastable networked list named [LISTNAME] in channel [CHANNEL]",
+                        arguments: {
+                            LIST: {
+                                type: 'string',
+                                defaultValue: 'my list',
+                            },
+                            LISTNAME: {
+                                type: 'string',
+                                defaultValue: 'public cloud list',
+                            },
+                            CHANNEL: {
+                                type: 'string',
+                                defaultValue: 'default',
+                            },
+                        },
+                    },
                     "---",
                     {
                         opcode: "on_channel_private_networked_list",
@@ -1439,29 +1495,6 @@
                         text: "When I get a private networked list named [LISTNAME] from peer [PEER] in channel [CHANNEL]",
                         isEdgeActivated: false,
                         arguments: {
-                            LISTNAME: {
-                                type: 'string',
-                                defaultValue: 'private cloud list',
-                            },
-                            CHANNEL: {
-                                type: 'string',
-                                defaultValue: 'default',
-                            },
-                            PEER: {
-                                type: 'string',
-                                defaultValue: 'ID',
-                            },
-                        },
-                    },
-                    {
-                        opcode: "make_private_networked_list",
-                        blockType: "command",
-                        text: "Make list [LIST] a private networked list named [LISTNAME] with peer [PEER] in channel [CHANNEL]",
-                        arguments: {
-                            LIST: {
-                                type: 'string',
-                                defaultValue: 'my list',
-                            },
                             LISTNAME: {
                                 type: 'string',
                                 defaultValue: 'private cloud list',
@@ -1499,35 +1532,22 @@
                             },
                         },
                     },
-                    "---",
                     {
-                        opcode: 'new_dchan',
-                        blockType: 'command',
-                        text: 'Open a new data channel named [CHANNEL] with peer [PEER] and make messages [ORDERED]',
+                        opcode: "make_private_networked_list",
+                        blockType: "command",
+                        text: "Make list [LIST] a private networked list named [LISTNAME] with peer [PEER] in channel [CHANNEL]",
                         arguments: {
+                            LIST: {
+                                type: 'string',
+                                defaultValue: 'my list',
+                            },
+                            LISTNAME: {
+                                type: 'string',
+                                defaultValue: 'private cloud list',
+                            },
                             CHANNEL: {
                                 type: 'string',
-                                defaultValue: 'foobar',
-                            },
-                            PEER: {
-                                type: 'string',
-                                defaultValue: 'ID',
-                            },
-                            ORDERED: {
-                                type: 'number',
-                                menu: 'channelConfig',
-                                defaultValue: "1",
-                            },
-                        },
-                    },
-                    {
-                        opcode: 'close_dchan',
-                        blockType: 'command',
-                        text: 'Close data channel named [CHANNEL] with peer [PEER]',
-                        arguments: {
-                            CHANNEL: {
-                                type: 'string',
-                                defaultValue: 'foobar',
+                                defaultValue: 'default',
                             },
                             PEER: {
                                 type: 'string',
@@ -1628,11 +1648,11 @@
                     channelConfig: {
                         items: [
                             {
-                                text: "reliable/ordered (For reliability)",
+                                text: "reliability/order over speed",
                                 value: "1",
                             },
                             {
-                                text: "unreliable/unordered (For speed)",
+                                text: "speed over reliability/order",
                                 value: "2",
                             },
                         ],
@@ -1734,6 +1754,9 @@
                     OmegaSignalingInstance.onConnect(() => {
                         console.log('Connected to signaling server.');
 
+                        // Fire on connect event
+                        self.runtime.startHats("cl5_on_signalling_connect");
+
                         // Return the promise.
                         resolve();
                     })
@@ -1746,6 +1769,9 @@
                         Array.from(OmegaRTCInstance.peerConnections.keys()).forEach((peer) => {
                             OmegaRTCInstance.disconnectDataPeer(peer);
                         })
+
+                        // Fire on disconnect event
+                        self.runtime.startHats("cl5_on_signalling_disconnect");
 
                         // If this was a failed connection attempt, return the promise with a rejection.
                         reject();
@@ -1766,6 +1792,16 @@
                         if (pubKey) {
                             await OmegaEncryptionInstance.setSharedKeyFromPublicKey(remoteUserId, pubKey);
                         }
+
+                        OmegaRTCInstance.onChannelOpen(remoteUserId, async(channel) => {
+                            if (channel == "default") {
+                                // Set peer ID
+                                self.newestPeerConnected = remoteUserId;
+
+                                // Fire on new peer event
+                                self.runtime.startHats("cl5_on_new_peer");
+                            }
+                        })
                     })
 
                     // Server advertises a new peer, we need to create a new peer connection
@@ -1864,6 +1900,16 @@
                             );
 
                         }
+
+                        OmegaRTCInstance.onChannelOpen(remoteUserId, async(channel) => {
+                            if (channel == "default") {
+                                // Set peer ID
+                                self.newestPeerConnected = remoteUserId;
+
+                                // Fire on new peer event
+                                self.runtime.startHats("cl5_on_new_peer");
+                            }
+                        })
                     })
 
                     // Peer receives a new host, prepare for an offer
@@ -1884,6 +1930,16 @@
                         if (pubKey) {
                             await OmegaEncryptionInstance.setSharedKeyFromPublicKey(remoteUserId, pubKey);
                         }
+
+                        OmegaRTCInstance.onChannelOpen(remoteUserId, async(channel) => {
+                            if (channel == "default") {
+                                // Set peer ID
+                                self.newestPeerConnected = remoteUserId;
+
+                                // Fire on new peer event
+                                self.runtime.startHats("cl5_on_new_peer");
+                            }
+                        })
                     })
 
                     // Handle ICE candidates
@@ -1946,7 +2002,7 @@
                             OmegaSignalingInstance.sendAnswer(
                                 remoteUserId, 
                                 {
-                                    type: 0, // data
+                                    type: type,
                                     contents: [encryptedMessage, iv],
                                 }, 
                                 null
@@ -1957,7 +2013,7 @@
                             OmegaSignalingInstance.sendAnswer(
                                 remoteUserId, 
                                 {
-                                    type: 0, // data
+                                    type: type,
                                     contents: answer,
                                 }, 
                                 null
@@ -1984,7 +2040,7 @@
                                 OmegaSignalingInstance.sendIceCandidate(
                                     remoteUserId, 
                                     {
-                                        type: 0, // data
+                                        type: type,
                                         contents: [encryptedMessage, iv],
                                     },
                                 );
@@ -1993,7 +2049,7 @@
                                 OmegaSignalingInstance.sendIceCandidate(
                                     remoteUserId, 
                                     {
-                                        type: 0, // data
+                                        type: type,
                                         contents: candidate,
                                     },
                                 );
@@ -2019,7 +2075,7 @@
                                     OmegaSignalingInstance.sendIceCandidate(
                                         remoteUserId, 
                                         {
-                                            type: 0, // data
+                                            type: type,
                                             contents: [encryptedMessage, iv],
                                         },
                                     );
@@ -2028,7 +2084,7 @@
                                     OmegaSignalingInstance.sendIceCandidate(
                                         remoteUserId, 
                                         {
-                                            type: 0, // data
+                                            type: type,
                                             contents: candidate,
                                         },
                                     );
@@ -2043,6 +2099,7 @@
                     // Handle answers
                     OmegaSignalingInstance.onAnswer(async(message) => {
                         const remoteUserId = message.origin.id;
+                        const remoteUserName = message.origin.user;
                         const sharedKey = await OmegaEncryptionInstance.getSharedKey(remoteUserId);
                         let type = message.payload.type;
                         let answer = message.payload.contents;
@@ -2083,7 +2140,7 @@
                                 OmegaSignalingInstance.sendIceCandidate(
                                     remoteUserId, 
                                     {
-                                        type: 0, // data
+                                        type: type,
                                         contents: [encryptedMessage, iv],
                                     },
                                 );
@@ -2092,7 +2149,7 @@
                                 OmegaSignalingInstance.sendIceCandidate(
                                     remoteUserId, 
                                     {
-                                        type: 0, // data
+                                        type: type,
                                         contents: candidate,
                                     },
                                 );
@@ -2118,7 +2175,7 @@
                                     OmegaSignalingInstance.sendIceCandidate(
                                         remoteUserId, 
                                         {
-                                            type: 0, // data
+                                            type: type,
                                             contents: [encryptedMessage, iv],
                                         },
                                     );
@@ -2127,7 +2184,7 @@
                                     OmegaSignalingInstance.sendIceCandidate(
                                         remoteUserId, 
                                         {
-                                            type: 0, // data
+                                            type: type,
                                             contents: candidate,
                                         },
                                     );
@@ -2258,12 +2315,10 @@
         }
 
         disconnect_peer({PEER}) {
-            const self = this;
             OmegaRTCInstance.disconnectDataPeer(PEER);
         }
 
         leave() {
-            const self = this;
             if (!OmegaSignalingInstance.socket) {
                 return;
             }
@@ -2278,6 +2333,10 @@
         is_signalling_connected() {
             if (!OmegaSignalingInstance.socket) return false;
             return (OmegaSignalingInstance.socket.readyState === 1);
+        }
+
+        is_signaling_auth_success() {
+            return OmegaSignalingInstance.state.authenticated;
         }
 
         my_ID() {
@@ -2351,7 +2410,7 @@
             console.log(OmegaRTCInstance.createChannel(PEER, CHANNEL, (ORDERED == 1), channelIdCounter));
         }
 
-        new_vchan({PEER}) {
+        async new_vchan({PEER}) {
             const self = this;
 
             // Check if peer exists
@@ -2359,8 +2418,40 @@
                 console.warn(`Peer ${PEER} not found.`);
                 return;
             }
+            
+            const remoteUserId = PEER;
+            const sharedKey = await OmegaEncryptionInstance.getSharedKey(remoteUserId);
+            const remoteUserName = OmegaRTCInstance.peerConnections.get(remoteUserId).user;
 
-            // self.WebRTC.openVoiceStream(PEER);
+            // Create voice offer
+            let offer = await OmegaRTCInstance.createVoiceOffer(remoteUserId, remoteUserName);
+
+            // Encrypt offer (if public key is provided)
+            if (sharedKey) {
+                let {encryptedMessage, iv} = await OmegaEncryptionInstance.encryptMessage(JSON.stringify(offer), sharedKey);
+
+                // Send encrypted offer
+                OmegaSignalingInstance.sendOffer(
+                    remoteUserId,
+                    {
+                        type: 1, // voice
+                        contents: [encryptedMessage, iv],
+                    },
+                    null,
+                );
+
+            } else {
+                // Send plaintext offer
+                OmegaSignalingInstance.sendOffer(
+                    remoteUserId,
+                    {
+                        type: 1, // voice
+                        contents: offer,
+                    },
+                    null,
+                );
+
+            }
         }
 
         change_mic_state({MICSTATE, PEER}) { // TODO
@@ -2431,7 +2522,6 @@
         }
 
         get_client_mode() {
-            const self = this;
             if (OmegaSignalingInstance.state.mode == 1) {
                 return "host";
             } else if (OmegaSignalingInstance.state.mode == 2) {
@@ -2583,7 +2673,8 @@
         }
 
         get_new_peer() {
-
+            const self = this;
+            return self.newestPeerConnected;
         }
     };
 
