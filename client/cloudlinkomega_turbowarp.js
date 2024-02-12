@@ -430,11 +430,13 @@
                         break;
                     case "closed":
                         console.log(`Peer ${remoteUserName} (${remoteUserId}) disconnected.`);
-                        if (!isAudioOnly) this.disconnectDataPeer(remoteUserId);
+                        if (isAudioOnly) this.closeVoiceStream(remoteUserId);
+                        else this.disconnectDataPeer(remoteUserId);
                         break;
                     case "failed":
                         console.log(`Peer ${remoteUserName} (${remoteUserId}) connection failed.`);
-                        if (!isAudioOnly) this.disconnectDataPeer(remoteUserId);
+                        if (isAudioOnly) this.closeVoiceStream(remoteUserId);
+                        else this.disconnectDataPeer(remoteUserId);
                         break;
                     default:
                         console.log(`Peer ${remoteUserName} (${remoteUserId}) connection state unknown.`);
@@ -492,6 +494,7 @@
                 console.log(`Data channel ${channel.label} with ${remoteUserName} (${remoteUserId}) closed`);
                 if (channel.label == "default") {
                     this.disconnectDataPeer(remoteUserId);
+                    this.closeVoiceStream(remoteUserId);
                 } else {
                     this.dataChannels.get(remoteUserId).delete(channel.label);
                 }
@@ -524,6 +527,10 @@
                 console.log(`Removing peer ${remoteUserId} audio stream...`);
                 document.body.removeChild(audioElement);
             }
+
+            // Delete the voiceConnection and all ICE candidates gathered
+            this.voiceConnections.delete(remoteUserId);
+            delete this.iceCandidates[remoteUserId];
         }
     
         createChannel(remoteUserId, label, ordered, id) {
@@ -1561,13 +1568,24 @@
                     },
                     {
                         opcode: "get_mic_perms",
-                        blockType: "reporter",
+                        blockType: "Boolean",
                         text: "Do I have microphone access?",
                     },
                     {
                         opcode: 'is_peer_vchan_open',
                         blockType: 'Boolean',
                         text: 'Connected to voice chat with peer [PEER]?',
+                        arguments: {
+                            PEER: {
+                                type: 'string',
+                                defaultValue: 'ID',
+                            }
+                        }
+                    },
+                    {
+                        opcode: "get_mic_mute_state",
+                        blockType: "Boolean",
+                        text: "Is my microphone with peer [PEER] muted?",
                         arguments: {
                             PEER: {
                                 type: 'string',
@@ -1587,7 +1605,7 @@
                             MICSTATE: {
                                 type: 'number',
                                 menu: 'micStateMenu',
-                                defaultValue: "1",
+                                defaultValue: "0",
                             },
                         },
                     },
@@ -1635,11 +1653,11 @@
                         items: [
                             {
                                 text: "Mute",
-                                value: "1",
+                                value: "0",
                             },
                             {
                                 text: "Unmute",
-                                value: "2",
+                                value: "1",
                             },
                         ],
                     },
@@ -1766,6 +1784,7 @@
                         // To be compliant with the protocol, we must close all peer connections.
                         Array.from(OmegaRTCInstance.peerConnections.keys()).forEach((peer) => {
                             OmegaRTCInstance.disconnectDataPeer(peer);
+                            OmegaRTCInstance.closeVoiceStream(peer);
                         })
 
                         // Fire on disconnect event
@@ -2416,6 +2435,9 @@
                 console.warn(`Peer ${PEER} not found.`);
                 return;
             }
+
+            // Prevent a new channel from being created if the peer has a open voice channel already
+            if (self.is_peer_vchan_open(PEER)) return;
             
             const remoteUserId = PEER;
             const sharedKey = await OmegaEncryptionInstance.getSharedKey(remoteUserId);
@@ -2452,22 +2474,106 @@
             }
         }
 
-        change_mic_state({MICSTATE, PEER}) { // TODO
-            
+        change_mic_state({MICSTATE, PEER}) {
+            // Check if peer exists
+            if (!OmegaRTCInstance.doesPeerExist(PEER)) {
+                return false;
+            }
+
+            // Get voice connection
+            const voiceConnection = OmegaRTCInstance.voiceConnections.get(PEER);
+
+            // Get tracks
+            const senders = voiceConnection.getSenders();
+
+            // Loop through senders and enable/disable audio
+            for (const s of senders) {
+                const t = s.track;
+
+                if (t.kind !== "audio") {
+                    continue;
+                }
+
+                t.enabled = (MICSTATE == 1); // 0 - mute, 1 - unmute
+            }
         }
 
-        is_peer_vchan_open({PEER}) { // TODO
+        is_peer_vchan_open({PEER}) {
+            // Check if peer exists
+            if (!OmegaRTCInstance.doesPeerExist(PEER)) {
+                return false;
+            }
 
+            // Get voice connection
+            const voiceConnection = OmegaRTCInstance.voiceConnections.get(PEER);
+
+            // Voice connection not created or connected
+            if (!voiceConnection) {
+                return false;
+            }
+
+            return (
+                (voiceConnection != null) && // Check if voice connection exists
+                (voiceConnection.getSenders().length > 0) && // Check if there are senders
+                (voiceConnection.getSenders()[0].track.readyState === "live") // Check if the audio track is open
+            );
         }
 
-        close_vchan({PEER}) { // TODO
+        get_mic_mute_state({PEER}) {
+            // Check if peer exists
+            if (!OmegaRTCInstance.doesPeerExist(PEER)) {
+                return false;
+            }
+
+            // Get voice connection
+            const voiceConnection = OmegaRTCInstance.voiceConnections.get(PEER);
+
+            // Voice connection not created or connected
+            if (!voiceConnection) {
+                return false;
+            }
+
+            return (
+                (voiceConnection != null) && // Check if voice connection exists
+                (voiceConnection.getSenders().length > 0) && // Check if there are senders
+                (!voiceConnection.getSenders()[0].track.enabled) // Check if the audio track is muted (enabled = false)
+            );
+        }
+
+        close_vchan({PEER}) {
             // Check if peer exists
             if (!OmegaRTCInstance.doesPeerExist(PEER)) {
                 console.warn(`Peer ${PEER} not found.`);
                 return;
             }
 
-            // self.WebRTC.closeVoiceStream(PEER);
+            // Get voice connection
+            const voiceConnection = OmegaRTCInstance.voiceConnections.get(PEER);
+
+            // Voice connection not created or connected
+            if (!voiceConnection) {
+                return false;
+            }
+
+            // Get tracks
+            const senders = voiceConnection.getSenders();
+
+            // Loop through senders and close audio track
+            for (const s of senders) {
+                const t = s.track;
+
+                if (t.kind !== "audio") {
+                    continue;
+                }
+
+                t.stop();
+            }
+
+            // Close voice connection
+            voiceConnection.close();
+
+            // Delete voice connection
+            OmegaRTCInstance.closeVoiceStream(PEER);
         }
         
         close_dchan({CHANNEL, PEER}) {
