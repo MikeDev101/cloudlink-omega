@@ -223,6 +223,8 @@
             this.configuration = {
                 // Public STUN/TURN servers.
                 iceServers: [
+                    { urls: "stun:vpn.mikedev101.cc:3478" },
+                    { urls: "turn:vpn.mikedev101.cc:3478", username: "free", credential: "free" },
                     { urls: 'stun:stun.l.google.com:19302' }, // Unencrypted STUN
                     { urls: 'stun:freeturn.net:3478' }, // Unencrypted UDP/TCP STUN
                     { urls: 'stun:freeturn.net:5349' }, // Unencrypted TCP/TLS STUN
