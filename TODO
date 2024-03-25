@@ -1,3 +1,0 @@
-* Bugfix signaller panics caused by bugged lobby ownership transfer system
-* Client code cleanup
-* Implement sending scratch lists
